@@ -16,9 +16,11 @@ from src.canonicalize.literals import heideltime_parse, normalize_quantities, re
 from src.verify.evidence import claim_from_fact
 from src.verify.nli import LocalVerifier
 from src.dedup.signature import canonical_string, fact_id_from_canonical, minhash_from_text, band_hashes
-from src.dedup.lsh import embed_text
+from src.dedup.lsh import embed_text, serialize_minhash, compute_jaccard_from_bytes
 from src.storage.repo import Repo
+from src.storage.qdrant_client import get_vector_store
 from src.util.logging import setup_logging, get_logger
+import os
 
 logger = get_logger("cli")
 
@@ -199,20 +201,49 @@ def process_blob(
                 cfg["dedup"]["minhash"]["rows_per_band"]
             )
 
+            # Serialize MinHash for storage
+            mh_bytes = serialize_minhash(mh)
+
             # Generate embedding
             embedding = None
             if cfg["dedup"]["embed_fallback"]:
                 embedding = embed_text(cs, cfg["dedup"]["embed_model"])
             fact["canonical_embedding"] = embedding
 
-            # Query for duplicates
+            # Query for LSH candidates
             candidates = repo.query_lsh_candidates(bands)
 
-            # Store fact
-            fact_id = repo.insert_fact(fact, bands)
+            # Filter candidates by Jaccard similarity
+            verified_candidates = []
+            for cand_id in candidates:
+                cand_mh_bytes = repo.get_minhash_signature(cand_id)
+                if cand_mh_bytes:
+                    jaccard = compute_jaccard_from_bytes(mh_bytes, cand_mh_bytes, cfg["dedup"]["minhash"]["n_perm"])
+                    if jaccard >= cfg["dedup"]["jaccard_threshold"]:
+                        verified_candidates.append(cand_id)
+
+            # Store fact with MinHash signature
+            fact_id = repo.insert_fact(fact, bands, mh_bytes)
+
+            # Store embedding in Qdrant if enabled
+            if embedding and cfg["dedup"]["embed_fallback"]:
+                try:
+                    qdrant_url = os.environ.get("QDRANT_URL", cfg.get("qdrant", {}).get("url", "http://localhost:6333"))
+                    vector_store = get_vector_store(qdrant_url)
+                    vector_store.upsert_vector(
+                        fact_id=fact_id,
+                        embedding=embedding,
+                        payload={
+                            "video_id": fact["video_id"],
+                            "channel_id": fact["channel_id"],
+                            "canonical_string": cs
+                        }
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to store embedding in Qdrant: {e}")
 
             # Assign to cluster
-            repo.assign_or_create_cluster(fact_id, candidates, embedding)
+            repo.assign_or_create_cluster(fact_id, verified_candidates, embedding)
 
             facts_extracted += 1
             logger.debug(f"Extracted fact: {fact_id}")

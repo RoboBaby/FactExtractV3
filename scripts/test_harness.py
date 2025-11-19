@@ -37,10 +37,12 @@ from src.canonicalize.literals import normalize_quantities, render_timex, derive
 from src.verify.evidence import claim_from_fact
 from src.verify.nli import LocalVerifier
 from src.dedup.signature import canonical_string, fact_id_from_canonical, minhash_from_text, band_hashes
-from src.dedup.lsh import embed_text
+from src.dedup.lsh import embed_text, serialize_minhash, compute_jaccard_from_bytes
 from src.storage.db import Database
 from src.storage.repo import Repo
+from src.storage.qdrant_client import get_vector_store
 from src.util.logging import setup_logging, get_logger
+import os
 
 logger = get_logger("test_harness")
 
@@ -118,8 +120,12 @@ class TestHarness:
                         "rows_per_band": 4,
                         "shingle_size": 5
                     },
+                    "jaccard_threshold": 0.5,
                     "embed_fallback": False,  # Disable for faster testing
                     "embed_model": "sentence-transformers/all-MiniLM-L6-v2"
+                },
+                "qdrant": {
+                    "url": "http://localhost:6333"
                 }
             }
 
@@ -362,16 +368,50 @@ class TestHarness:
                 mh = minhash_from_text(cs, mh_config["n_perm"], mh_config["shingle_size"])
                 bands = band_hashes(mh, mh_config["bands"], mh_config["rows_per_band"])
 
+                # Serialize MinHash for storage
+                mh_bytes = serialize_minhash(mh)
+
                 # Embedding
                 embedding = None
                 if self.config["dedup"]["embed_fallback"]:
                     embedding = embed_text(cs, self.config["dedup"]["embed_model"])
                 fact["canonical_embedding"] = embedding
 
-                # Query candidates and store
+                # Query for LSH candidates
                 candidates = repo.query_lsh_candidates(bands)
-                fact_id = repo.insert_fact(fact, bands)
-                repo.assign_or_create_cluster(fact_id, candidates, embedding)
+
+                # Filter candidates by Jaccard similarity
+                verified_candidates = []
+                jaccard_threshold = self.config["dedup"].get("jaccard_threshold", 0.5)
+                for cand_id in candidates:
+                    cand_mh_bytes = repo.get_minhash_signature(cand_id)
+                    if cand_mh_bytes:
+                        jaccard = compute_jaccard_from_bytes(mh_bytes, cand_mh_bytes, mh_config["n_perm"])
+                        if jaccard >= jaccard_threshold:
+                            verified_candidates.append(cand_id)
+
+                # Store fact with MinHash signature
+                fact_id = repo.insert_fact(fact, bands, mh_bytes)
+
+                # Store embedding in Qdrant if enabled
+                if embedding and self.config["dedup"]["embed_fallback"]:
+                    try:
+                        qdrant_url = os.environ.get("QDRANT_URL", self.config.get("qdrant", {}).get("url", "http://localhost:6333"))
+                        vector_store = get_vector_store(qdrant_url)
+                        vector_store.upsert_vector(
+                            fact_id=fact_id,
+                            embedding=embedding,
+                            payload={
+                                "video_id": fact["video_id"],
+                                "channel_id": fact["channel_id"],
+                                "canonical_string": cs
+                            }
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to store embedding in Qdrant: {e}")
+
+                # Assign to cluster
+                repo.assign_or_create_cluster(fact_id, verified_candidates, embedding)
 
                 facts_extracted += 1
 

@@ -36,10 +36,15 @@ dedup:
     rows_per_band: 4
     shingle_size: 5
     jaccard_equiv: 0.85
+  jaccard_threshold: 0.5    # Min Jaccard for verified duplicates
   embed_fallback: true
   embed_model: "sentence-transformers/all-MiniLM-L6-v2"
   embed_cosine_min: 0.84
 
 db:
   dsn: "postgresql://postgres:postgres@db:5432/facts"
-  use_pgvector: true
+
+qdrant:
+  url: "http://localhost:6333"
+  collection_name: "fact_embeddings"
+  vector_size: 384  # MiniLM-L6-v2 dimension
