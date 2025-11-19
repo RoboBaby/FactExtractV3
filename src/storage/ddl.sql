@@ -1,6 +1,3 @@
--- Enable pgvector for embeddings
-CREATE EXTENSION IF NOT EXISTS vector;
-
 -- Core entities table (either QID or local_id must be present)
 CREATE TABLE IF NOT EXISTS entities (
   entity_key TEXT PRIMARY KEY,             -- "wikidata:Qxxx" or "local:hash"
@@ -18,7 +15,7 @@ CREATE TABLE IF NOT EXISTS videos (
   publish_time TIMESTAMPTZ
 );
 
--- Facts
+-- Facts (vectors stored in Qdrant, not PostgreSQL)
 CREATE TABLE IF NOT EXISTS facts (
   fact_id TEXT PRIMARY KEY,                -- sha1 of canonical string
   video_id TEXT NOT NULL REFERENCES videos(video_id) ON DELETE CASCADE,
@@ -34,16 +31,19 @@ CREATE TABLE IF NOT EXISTS facts (
   t_start DOUBLE PRECISION,
   t_end DOUBLE PRECISION,
   canonical_string TEXT NOT NULL,
-  canonical_embedding vector(384)          -- MiniLM
+  minhash_signature BYTEA                  -- Store full MinHash for Jaccard comparison
 );
 
--- MinHash bands for LSH
+-- MinHash bands for LSH candidate retrieval
 CREATE TABLE IF NOT EXISTS fact_minhash (
   fact_id TEXT NOT NULL REFERENCES facts(fact_id) ON DELETE CASCADE,
   band_index SMALLINT NOT NULL,
   band_hash TEXT NOT NULL,
   PRIMARY KEY (band_index, band_hash, fact_id)
 );
+
+-- Index for fast LSH candidate lookup
+CREATE INDEX IF NOT EXISTS idx_minhash_band_hash ON fact_minhash(band_hash);
 
 -- Clusters (optional but useful for analytics)
 CREATE TABLE IF NOT EXISTS clusters (
@@ -66,7 +66,6 @@ CREATE TABLE IF NOT EXISTS cluster_members (
 CREATE INDEX IF NOT EXISTS idx_facts_subject ON facts(subject_key);
 CREATE INDEX IF NOT EXISTS idx_facts_object ON facts(object_key);
 CREATE INDEX IF NOT EXISTS idx_facts_channel ON facts(channel_id);
-CREATE INDEX IF NOT EXISTS idx_facts_embedding ON facts USING hnsw (canonical_embedding vector_cosine_ops);
 CREATE INDEX IF NOT EXISTS idx_facts_qualifiers_gin ON facts USING GIN (qualifiers);
 CREATE INDEX IF NOT EXISTS idx_entities_qid ON entities(qid);
 CREATE INDEX IF NOT EXISTS idx_entities_local_id ON entities(local_id);

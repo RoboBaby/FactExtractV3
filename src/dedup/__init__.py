@@ -8,10 +8,14 @@ from .signature import (
     jaccard_similarity,
 )
 from .lsh import (
-    LSHIndex,
-    DedupManager,
     compute_embedding_similarity,
     embed_text,
+    embed_text_cached,
+    serialize_minhash,
+    deserialize_minhash,
+    compute_jaccard,
+    compute_jaccard_from_bytes,
+    get_embedding_model,
 )
 
 __all__ = [
@@ -20,8 +24,12 @@ __all__ = [
     "minhash_from_text",
     "band_hashes",
     "jaccard_similarity",
-    "LSHIndex",
-    "DedupManager",
     "compute_embedding_similarity",
     "embed_text",
+    "embed_text_cached",
+    "serialize_minhash",
+    "deserialize_minhash",
+    "compute_jaccard",
+    "compute_jaccard_from_bytes",
+    "get_embedding_model",
 ]

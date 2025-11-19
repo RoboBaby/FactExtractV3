@@ -1,73 +1,19 @@
-"""LSH-based deduplication and clustering."""
+"""LSH-based deduplication using PostgreSQL and Qdrant.
 
-from typing import List, Dict, Set, Optional, Any
-from collections import defaultdict
+This module provides deduplication using:
+- PostgreSQL for LSH band-based candidate retrieval
+- Qdrant for semantic similarity search (vector embeddings)
+- MinHash signatures stored in PostgreSQL for Jaccard comparison
+"""
+
+import pickle
+from typing import List, Optional
+
+from datasketch import MinHash
 
 from src.util.logging import get_logger
 
 logger = get_logger("dedup.lsh")
-
-
-class LSHIndex:
-    """
-    In-memory LSH index for candidate retrieval.
-
-    Uses band hashes for fast approximate nearest neighbor lookup.
-    """
-
-    def __init__(self, bands: int = 32):
-        """
-        Initialize LSH index.
-
-        Args:
-            bands: Number of bands (must match signature generation)
-        """
-        self.bands = bands
-        # band_index -> band_hash -> set of fact_ids
-        self._index: Dict[int, Dict[str, Set[str]]] = defaultdict(lambda: defaultdict(set))
-
-    def add(self, fact_id: str, band_hashes: List[tuple]):
-        """
-        Add a fact to the index.
-
-        Args:
-            fact_id: Fact identifier
-            band_hashes: List of (band_index, band_hash) tuples
-        """
-        for band_idx, band_hash in band_hashes:
-            self._index[band_idx][band_hash].add(fact_id)
-
-    def query(self, band_hashes: List[tuple]) -> Set[str]:
-        """
-        Query for candidate duplicates.
-
-        Returns facts that share at least one band hash.
-
-        Args:
-            band_hashes: List of (band_index, band_hash) tuples
-
-        Returns:
-            Set of candidate fact IDs
-        """
-        candidates = set()
-
-        for band_idx, band_hash in band_hashes:
-            if band_hash in self._index[band_idx]:
-                candidates.update(self._index[band_idx][band_hash])
-
-        return candidates
-
-    def remove(self, fact_id: str, band_hashes: List[tuple]):
-        """
-        Remove a fact from the index.
-
-        Args:
-            fact_id: Fact identifier
-            band_hashes: List of (band_index, band_hash) tuples
-        """
-        for band_idx, band_hash in band_hashes:
-            if band_hash in self._index[band_idx]:
-                self._index[band_idx][band_hash].discard(fact_id)
 
 
 def compute_embedding_similarity(
@@ -97,7 +43,10 @@ def compute_embedding_similarity(
         return 0.0
 
 
-def embed_text(text: str, model_name: str = "sentence-transformers/all-MiniLM-L6-v2") -> Optional[List[float]]:
+def embed_text(
+    text: str,
+    model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
+) -> Optional[List[float]]:
     """
     Generate embedding for text.
 
@@ -118,115 +67,117 @@ def embed_text(text: str, model_name: str = "sentence-transformers/all-MiniLM-L6
         return None
 
 
-class DedupManager:
+def serialize_minhash(mh: MinHash) -> bytes:
     """
-    Manages deduplication and clustering of facts.
+    Serialize MinHash object to bytes for database storage.
+
+    Args:
+        mh: MinHash object
+
+    Returns:
+        Serialized bytes
     """
+    return pickle.dumps(mh.hashvalues)
 
-    def __init__(
-        self,
-        jaccard_threshold: float = 0.85,
-        cosine_threshold: float = 0.84,
-        use_embeddings: bool = True,
-        embed_model: str = "sentence-transformers/all-MiniLM-L6-v2"
-    ):
-        """
-        Initialize dedup manager.
 
-        Args:
-            jaccard_threshold: MinHash Jaccard threshold for duplicates
-            cosine_threshold: Embedding cosine threshold for semantic similarity
-            use_embeddings: Whether to use embedding fallback
-            embed_model: Sentence transformer model for embeddings
-        """
-        self.jaccard_threshold = jaccard_threshold
-        self.cosine_threshold = cosine_threshold
-        self.use_embeddings = use_embeddings
-        self.embed_model = embed_model
+def deserialize_minhash(data: bytes, n_perm: int = 128) -> MinHash:
+    """
+    Deserialize MinHash from bytes.
 
-        self._lsh_index = LSHIndex()
-        self._fact_signatures: Dict[str, Any] = {}  # fact_id -> {"minhash": ..., "embedding": ...}
-        self._embed_model = None
+    Args:
+        data: Serialized bytes
+        n_perm: Number of permutations
 
-    def _get_embed_model(self):
-        """Lazy load embedding model."""
-        if self._embed_model is None and self.use_embeddings:
-            try:
-                from sentence_transformers import SentenceTransformer
-                self._embed_model = SentenceTransformer(self.embed_model)
-            except Exception as e:
-                logger.warning(f"Failed to load embedding model: {e}")
-        return self._embed_model
+    Returns:
+        MinHash object
+    """
+    hashvalues = pickle.loads(data)
+    mh = MinHash(num_perm=n_perm)
+    mh.hashvalues = hashvalues
+    return mh
 
-    def add_fact(
-        self,
-        fact_id: str,
-        minhash,
-        band_hashes: List[tuple],
-        embedding: Optional[List[float]] = None
-    ):
-        """
-        Add a fact to the dedup index.
 
-        Args:
-            fact_id: Fact identifier
-            minhash: MinHash object
-            band_hashes: LSH band hashes
-            embedding: Optional embedding vector
-        """
-        self._lsh_index.add(fact_id, band_hashes)
-        self._fact_signatures[fact_id] = {
-            "minhash": minhash,
-            "embedding": embedding
-        }
+def compute_jaccard(mh1: MinHash, mh2: MinHash) -> float:
+    """
+    Compute Jaccard similarity between two MinHash signatures.
 
-    def find_duplicates(
-        self,
-        fact_id: str,
-        minhash,
-        band_hashes: List[tuple],
-        embedding: Optional[List[float]] = None
-    ) -> List[str]:
-        """
-        Find duplicate facts.
+    Args:
+        mh1: First MinHash
+        mh2: Second MinHash
 
-        Args:
-            fact_id: New fact identifier
-            minhash: MinHash of new fact
-            band_hashes: LSH band hashes of new fact
-            embedding: Optional embedding of new fact
+    Returns:
+        Jaccard similarity score
+    """
+    return mh1.jaccard(mh2)
 
-        Returns:
-            List of duplicate fact IDs
-        """
-        # Get LSH candidates
-        candidates = self._lsh_index.query(band_hashes)
-        candidates.discard(fact_id)  # Remove self
 
-        if not candidates:
-            return []
+def compute_jaccard_from_bytes(
+    data1: bytes,
+    data2: bytes,
+    n_perm: int = 128
+) -> float:
+    """
+    Compute Jaccard similarity from serialized MinHash signatures.
 
-        duplicates = []
+    Args:
+        data1: First serialized MinHash
+        data2: Second serialized MinHash
+        n_perm: Number of permutations
 
-        for cand_id in candidates:
-            cand_sig = self._fact_signatures.get(cand_id)
-            if not cand_sig:
-                continue
+    Returns:
+        Jaccard similarity score
+    """
+    mh1 = deserialize_minhash(data1, n_perm)
+    mh2 = deserialize_minhash(data2, n_perm)
+    return compute_jaccard(mh1, mh2)
 
-            # Check MinHash Jaccard
-            cand_mh = cand_sig.get("minhash")
-            if cand_mh:
-                jaccard = minhash.jaccard(cand_mh)
-                if jaccard >= self.jaccard_threshold:
-                    duplicates.append(cand_id)
-                    continue
 
-            # Embedding fallback
-            if self.use_embeddings and embedding:
-                cand_emb = cand_sig.get("embedding")
-                if cand_emb:
-                    cosine = compute_embedding_similarity(embedding, cand_emb)
-                    if cosine >= self.cosine_threshold:
-                        duplicates.append(cand_id)
+# Lazy-loaded embedding model
+_embed_model = None
 
-        return duplicates
+
+def get_embedding_model(model_name: str = "sentence-transformers/all-MiniLM-L6-v2"):
+    """
+    Get or create the embedding model singleton.
+
+    Args:
+        model_name: Model name
+
+    Returns:
+        SentenceTransformer model
+    """
+    global _embed_model
+    if _embed_model is None:
+        try:
+            from sentence_transformers import SentenceTransformer
+            _embed_model = SentenceTransformer(model_name)
+            logger.info(f"Loaded embedding model: {model_name}")
+        except Exception as e:
+            logger.error(f"Failed to load embedding model: {e}")
+    return _embed_model
+
+
+def embed_text_cached(
+    text: str,
+    model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
+) -> Optional[List[float]]:
+    """
+    Generate embedding using cached model.
+
+    Args:
+        text: Input text
+        model_name: Sentence transformer model name
+
+    Returns:
+        Embedding vector or None
+    """
+    model = get_embedding_model(model_name)
+    if model is None:
+        return None
+
+    try:
+        embedding = model.encode(text, normalize_embeddings=True)
+        return embedding.tolist()
+    except Exception as e:
+        logger.error(f"Embedding generation failed: {e}")
+        return None

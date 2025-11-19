@@ -9,7 +9,7 @@ rapidfuzz>=3.9
 
 # Database
 psycopg2-binary>=2.9
-pgvector>=0.2.5
+qdrant-client>=1.9
 
 # HTTP client for service calls
 requests>=2.32

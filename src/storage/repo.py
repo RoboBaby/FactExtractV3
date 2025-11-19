@@ -100,7 +100,8 @@ class Repo:
     def insert_fact(
         self,
         fact_obj: Dict[str, Any],
-        band_hashes: List[tuple]
+        band_hashes: List[tuple],
+        minhash_signature: Optional[bytes] = None
     ) -> str:
         """
         Insert a fact with its MinHash bands.
@@ -108,6 +109,7 @@ class Repo:
         Args:
             fact_obj: Canonical fact dictionary
             band_hashes: List of (band_index, band_hash) tuples
+            minhash_signature: Optional serialized MinHash for Jaccard comparison
 
         Returns:
             Fact ID
@@ -127,21 +129,15 @@ class Repo:
         if fact_obj.get("object"):
             object_key = self._get_entity_key(fact_obj["object"])
 
-        # Prepare embedding for pgvector
-        embedding = fact_obj.get("canonical_embedding")
-        embedding_str = None
-        if embedding:
-            embedding_str = f"[{','.join(map(str, embedding))}]"
-
-        # Insert fact
+        # Insert fact (vectors stored in Qdrant, not PostgreSQL)
         cur.execute(
             """
             INSERT INTO facts (
                 fact_id, video_id, channel_id, subject_key, predicate_frame,
                 predicate_pid, object_key, object_literal, qualifiers, evidence,
-                conf, t_start, t_end, canonical_string, canonical_embedding
+                conf, t_start, t_end, canonical_string, minhash_signature
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             )
             ON CONFLICT (fact_id) DO NOTHING
             """,
@@ -160,7 +156,7 @@ class Repo:
                 fact_obj.get("t_start"),
                 fact_obj.get("t_end"),
                 fact_obj.get("canonical_string"),
-                embedding_str
+                minhash_signature
             )
         )
 
@@ -180,6 +176,26 @@ class Repo:
         self.db.commit()
         logger.debug(f"Inserted fact {fact_id}")
         return fact_id
+
+    def get_minhash_signature(self, fact_id: str) -> Optional[bytes]:
+        """
+        Get MinHash signature for a fact.
+
+        Args:
+            fact_id: Fact identifier
+
+        Returns:
+            Serialized MinHash or None
+        """
+        cur = self.db.cursor()
+        cur.execute(
+            "SELECT minhash_signature FROM facts WHERE fact_id = %s",
+            (fact_id,)
+        )
+        result = cur.fetchone()
+        if result:
+            return result["minhash_signature"]
+        return None
 
     def _get_entity_key(self, entity: Dict[str, Any]) -> str:
         """Get entity key from entity reference."""
