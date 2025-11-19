@@ -1,0 +1,63 @@
+version: "3.9"
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: facts
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  srl:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.srl
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  timex:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.timex
+    ports:
+      - "8002:8002"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  pipeline:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    volumes:
+      - ../data:/data
+      - ../configs:/app/configs
+    environment:
+      - PYTHONWARNINGS=ignore
+    depends_on:
+      db:
+        condition: service_healthy
+      srl:
+        condition: service_started
+      timex:
+        condition: service_started
+    command: ["python", "src/cli.py", "--blobs", "/data/blobs.jsonl", "--config", "configs/app.yaml", "--init-db"]
+
+volumes:
+  pgdata:

@@ -1,0 +1,39 @@
+# Core
+numpy>=1.26,<3
+pandas>=2.2,<3
+pyyaml>=6.0
+tqdm>=4.66
+regex>=2024.5
+ftfy>=6.2
+rapidfuzz>=3.9
+
+# Database
+psycopg2-binary>=2.9
+pgvector>=0.2.5
+
+# HTTP client for service calls
+requests>=2.32
+
+# NLP & Entity linking
+spacy>=3.7,<3.9
+
+# Sentence embeddings & transformers
+sentence-transformers>=2.7
+transformers>=4.44
+torch>=2.3
+
+# Time & quantities normalization
+quantulum3>=0.9
+pint>=0.24
+
+# Deduplication
+datasketch>=1.6
+
+# Testing
+pytest>=8.2
+pytest-cov>=5.0
+
+# Optional: for full REL/BLINK support
+# Uncomment if installing entity linking models
+# flair>=0.13
+# wikipedia2vec>=1.0

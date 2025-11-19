@@ -1,0 +1,5 @@
+{"blob_id":"b1","video_id":"v1","channel_id":"cA","source":"transcript","text":"Alice assembles the drone with a Torx T20 bit.","t_start":310.12,"t_end":328.48}
+{"blob_id":"b2","video_id":"v2","channel_id":"cA","source":"narrative","text":"Alice puts the drone together using a Torx T20 bit.","t_start":120.00,"t_end":135.00}
+{"blob_id":"b3","video_id":"v3","channel_id":"cB","source":"transcript","text":"Bob assembles a quadcopter with a Torx T20 bit at 180 C.","t_start":88.00,"t_end":96.00}
+{"blob_id":"b4","video_id":"v4","channel_id":"cA","source":"keyframe","text":"The circuit board measures 50 millimeters in width.","t_start":200.00,"t_end":210.00}
+{"blob_id":"b5","video_id":"v5","channel_id":"cB","source":"transcript","text":"Heat the solder to 350 degrees Fahrenheit before applying.","t_start":45.00,"t_end":52.00}

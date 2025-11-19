@@ -1,0 +1,77 @@
+# lemma → canonical frame (+ optional PID)
+assemble:
+  frame: Assemble
+  sense: assemble.01
+  pid: null
+solder:
+  frame: Apply_heat
+  sense: solder.01
+  pid: null
+measure:
+  frame: Measure_quantity
+  sense: measure.01
+  pid: null
+be:
+  frame: Attribute
+  sense: be.01
+  pid: P31   # instance of (if pattern "X is a Y")
+have:
+  frame: Possession
+  sense: have.01
+  pid: null
+locate:
+  frame: Located
+  sense: locate.01
+  pid: P131
+put:
+  frame: Placing
+  sense: put.01
+  pid: null
+remove:
+  frame: Removing
+  sense: remove.01
+  pid: null
+heat:
+  frame: Apply_heat
+  sense: heat.01
+  pid: null
+attach:
+  frame: Attaching
+  sense: attach.01
+  pid: null
+connect:
+  frame: Attaching
+  sense: connect.01
+  pid: null
+use:
+  frame: Using
+  sense: use.01
+  pid: null
+build:
+  frame: Building
+  sense: build.01
+  pid: null
+create:
+  frame: Creating
+  sense: create.01
+  pid: null
+make:
+  frame: Creating
+  sense: make.01
+  pid: null
+install:
+  frame: Installing
+  sense: install.01
+  pid: null
+configure:
+  frame: Adjusting
+  sense: configure.01
+  pid: null
+set:
+  frame: Adjusting
+  sense: set.02
+  pid: null
+turn:
+  frame: Change_operational_state
+  sense: turn.01
+  pid: null
