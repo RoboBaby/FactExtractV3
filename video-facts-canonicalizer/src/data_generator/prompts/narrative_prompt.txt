@@ -1,0 +1,32 @@
+You are generating realistic test data for a video fact extraction system. Generate a narrative that would appear in a {style} video about {topic}.
+
+The narrative should:
+- Cover approximately {duration_seconds} seconds of video content
+- Be written as if transcribed from speech or describing visual actions
+- Include specific technical details, measurements, part names, and actions
+- Mention specific tools, components, or materials by name
+- Include temporal references ("first", "then", "after that", "while")
+- Reference specific quantities, temperatures, or measurements where appropriate
+- Include both actions performed and observations made
+- Sound natural and conversational, as real video narration would
+
+The content should be dense with extractable facts such as:
+- Who/what is performing actions
+- What actions are being performed
+- What tools or instruments are being used
+- What measurements or quantities are involved
+- What the results or outcomes are
+- Any safety considerations or warnings
+- Sequential steps in a process
+
+Return your response as a JSON object with this structure:
+```json
+{{
+  "text": "The full narrative text here...",
+  "key_entities": ["list", "of", "main", "entities", "mentioned"],
+  "key_actions": ["list", "of", "main", "actions", "performed"],
+  "measurements": ["any", "specific", "measurements"]
+}}
+```
+
+Generate the narrative now for: {topic}
