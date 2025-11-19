@@ -9,12 +9,17 @@ Usage:
 """
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
+
+# Load .env file
+from dotenv import load_dotenv
+load_dotenv(project_root / ".env")
 
 from src.data_generator import TestDataGenerator
 from src.util.logging import setup_logging, get_logger
