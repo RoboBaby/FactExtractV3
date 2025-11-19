@@ -128,7 +128,7 @@ blob.jsonl
       │
       ▼
 ┌─────────────┐
-│   Store     │  PostgreSQL + pgvector
+│   Store     │  PostgreSQL + Qdrant
 └─────────────┘
 ```
 

@@ -135,13 +135,61 @@ class StatsResponse(BaseModel):
     videos: int
     facts: int
     clusters: int
+    vectors: int = 0
 
 
 class HealthResponse(BaseModel):
     """Health check response."""
     status: str
     database: str
+    qdrant: str
     timestamp: str
+
+
+class FactResponse(BaseModel):
+    """Single fact response."""
+    fact_id: str
+    video_id: str
+    channel_id: str
+    subject_key: str
+    predicate_frame: str
+    object_key: Optional[str] = None
+    object_literal: Optional[dict] = None
+    qualifiers: Optional[dict] = None
+    evidence: Optional[dict] = None
+    conf: Optional[dict] = None
+    canonical_string: str
+    cluster_id: Optional[int] = None
+
+
+class ClusterResponse(BaseModel):
+    """Cluster with member facts."""
+    cluster_id: int
+    representative_fact_id: str
+    member_fact_ids: List[str]
+
+
+class SearchRequest(BaseModel):
+    """Search request for semantic similarity."""
+    query: str
+    limit: int = 10
+    score_threshold: float = 0.5
+
+
+class SearchResult(BaseModel):
+    """Single search result."""
+    fact_id: str
+    score: float
+    canonical_string: str
+    video_id: str
+    channel_id: str
+
+
+class SearchResponse(BaseModel):
+    """Search response."""
+    query: str
+    results: List[SearchResult]
+    total: int
 
 
 # Pipeline configuration
@@ -396,6 +444,7 @@ def get_extractor():
 async def health_check():
     """Health check endpoint."""
     db_status = "unknown"
+    qdrant_status = "unknown"
 
     try:
         db = Database(DEFAULT_DSN)
@@ -406,9 +455,22 @@ async def health_check():
     except Exception as e:
         db_status = f"error: {str(e)}"
 
+    try:
+        vector_store = get_vector_store(DEFAULT_QDRANT_URL)
+        info = vector_store.get_collection_info()
+        if info:
+            qdrant_status = f"connected ({info.get('vectors_count', 0)} vectors)"
+        else:
+            qdrant_status = "connected (no collection)"
+    except Exception as e:
+        qdrant_status = f"error: {str(e)}"
+
+    all_healthy = db_status == "connected" and "error" not in qdrant_status
+
     return HealthResponse(
-        status="healthy" if db_status == "connected" else "degraded",
+        status="healthy" if all_healthy else "degraded",
         database=db_status,
+        qdrant=qdrant_status,
         timestamp=datetime.utcnow().isoformat()
     )
 
@@ -421,11 +483,22 @@ async def get_stats():
         stats = repo.get_stats()
         repo.close()
 
+        # Get Qdrant vector count
+        vectors_count = 0
+        try:
+            vector_store = get_vector_store(DEFAULT_QDRANT_URL)
+            info = vector_store.get_collection_info()
+            if info:
+                vectors_count = info.get("vectors_count", 0)
+        except Exception:
+            pass
+
         return StatsResponse(
             entities=stats.get("entities", 0),
             videos=stats.get("videos", 0),
             facts=stats.get("facts", 0),
-            clusters=stats.get("clusters", 0)
+            clusters=stats.get("clusters", 0),
+            vectors=vectors_count
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
@@ -516,21 +589,31 @@ async def extract_facts_batch(blobs: List[BlobInput]):
 
 @app.post("/init")
 async def init_database():
-    """Initialize database schema."""
+    """Initialize database schema and Qdrant collection."""
     try:
+        # Initialize PostgreSQL schema
         db = Database(DEFAULT_DSN)
         db.connect()
         db.init_schema()
         db.close()
-        return {"status": "initialized"}
+
+        # Initialize Qdrant collection
+        try:
+            vector_store = get_vector_store(DEFAULT_QDRANT_URL)
+            vector_store.ensure_collection()
+        except Exception as e:
+            logger.warning(f"Qdrant init warning: {e}")
+
+        return {"status": "initialized", "database": "ok", "qdrant": "ok"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Init failed: {str(e)}")
 
 
 @app.post("/reset")
 async def reset_database():
-    """Reset database (truncate all tables)."""
+    """Reset database (truncate all tables) and Qdrant collection."""
     try:
+        # Reset PostgreSQL
         db = Database(DEFAULT_DSN)
         db.connect()
 
@@ -548,9 +631,111 @@ async def reset_database():
         db.commit()
         db.close()
 
-        return {"status": "reset"}
+        # Reset Qdrant
+        try:
+            vector_store = get_vector_store(DEFAULT_QDRANT_URL)
+            vector_store.delete_collection()
+            vector_store.ensure_collection()
+        except Exception as e:
+            logger.warning(f"Qdrant reset warning: {e}")
+
+        return {"status": "reset", "database": "ok", "qdrant": "ok"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Reset failed: {str(e)}")
+
+
+@app.get("/facts/{fact_id}", response_model=FactResponse)
+async def get_fact(fact_id: str):
+    """Get a single fact by ID."""
+    try:
+        repo = Repo(DEFAULT_DSN)
+        fact = repo.get_fact(fact_id)
+        repo.close()
+
+        if not fact:
+            raise HTTPException(status_code=404, detail=f"Fact not found: {fact_id}")
+
+        return FactResponse(
+            fact_id=fact["fact_id"],
+            video_id=fact["video_id"],
+            channel_id=fact["channel_id"],
+            subject_key=fact["subject_key"],
+            predicate_frame=fact["predicate_frame"],
+            object_key=fact.get("object_key"),
+            object_literal=fact.get("object_literal"),
+            qualifiers=fact.get("qualifiers"),
+            evidence=fact.get("evidence"),
+            conf=fact.get("conf"),
+            canonical_string=fact["canonical_string"],
+            cluster_id=fact.get("cluster_id")
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving fact: {str(e)}")
+
+
+@app.get("/clusters/{cluster_id}", response_model=ClusterResponse)
+async def get_cluster(cluster_id: int):
+    """Get a cluster and its member facts."""
+    try:
+        repo = Repo(DEFAULT_DSN)
+        members = repo.get_cluster_members(cluster_id)
+        repo.close()
+
+        if not members:
+            raise HTTPException(status_code=404, detail=f"Cluster not found: {cluster_id}")
+
+        # First member is typically the representative
+        return ClusterResponse(
+            cluster_id=cluster_id,
+            representative_fact_id=members[0] if members else "",
+            member_fact_ids=members
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving cluster: {str(e)}")
+
+
+@app.post("/search", response_model=SearchResponse)
+async def search_facts(request: SearchRequest):
+    """Search facts by semantic similarity."""
+    try:
+        # Generate embedding for query
+        query_embedding = embed_text(request.query)
+
+        if not query_embedding:
+            raise HTTPException(status_code=400, detail="Failed to generate embedding for query")
+
+        # Search Qdrant
+        vector_store = get_vector_store(DEFAULT_QDRANT_URL)
+        results = vector_store.search_similar(
+            embedding=query_embedding,
+            limit=request.limit,
+            score_threshold=request.score_threshold
+        )
+
+        # Format results
+        search_results = []
+        for r in results:
+            search_results.append(SearchResult(
+                fact_id=r["id"],
+                score=r["score"],
+                canonical_string=r.get("payload", {}).get("canonical_string", ""),
+                video_id=r.get("payload", {}).get("video_id", ""),
+                channel_id=r.get("payload", {}).get("channel_id", "")
+            ))
+
+        return SearchResponse(
+            query=request.query,
+            results=search_results,
+            total=len(search_results)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
 
 # Run with: uvicorn src.api.app:app --reload

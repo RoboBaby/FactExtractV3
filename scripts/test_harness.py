@@ -130,7 +130,7 @@ class TestHarness:
             }
 
     def cleanup_database(self):
-        """Clean all tables for fresh test run."""
+        """Clean all tables and Qdrant collection for fresh test run."""
         logger.info("Cleaning database tables...")
 
         db = Database(self.dsn)
@@ -157,6 +157,16 @@ class TestHarness:
             raise
         finally:
             db.close()
+
+        # Clean Qdrant collection
+        try:
+            qdrant_url = os.environ.get("QDRANT_URL", self.config.get("qdrant", {}).get("url", "http://localhost:6333"))
+            vector_store = get_vector_store(qdrant_url)
+            vector_store.delete_collection()
+            vector_store.ensure_collection()
+            logger.info("Qdrant collection cleaned")
+        except Exception as e:
+            logger.warning(f"Qdrant cleanup warning: {e}")
 
     def init_schema(self):
         """Initialize database schema if needed."""
