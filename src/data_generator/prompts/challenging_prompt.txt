@@ -1,0 +1,70 @@
+You are generating challenging test data for a video fact extraction system. Generate a narrative that tests specific linguistic phenomena.
+
+The narrative should be about {topic} and cover approximately {duration_seconds} seconds of video content.
+
+**CRITICAL REQUIREMENTS - Include these linguistic constructions:**
+
+1. **Passive Voice**: Include at least 2-3 sentences in passive voice
+   - Example: "The component was assembled by the technician using a precision tool."
+   - Example: "The measurements were taken by Alice at 3 PM."
+
+2. **Phrasal Verbs**: Include multiple phrasal verbs
+   - Examples: "put together", "heat up", "set up", "take apart", "turn on", "hook up"
+   - Example: "First, I'm putting together the main assembly. Then we'll heat up the solder."
+
+3. **Complex Noun Phrases**: Include descriptive noun phrases
+   - Example: "The experienced engineer with 10 years of experience assembles the advanced quadcopter drone."
+   - Example: "The high-quality Torx T20 screwdriver bit from the premium tool set."
+
+4. **Relative Clauses**: Include relative clauses
+   - Example: "The drone that Alice assembled uses a Torx T20 bit."
+   - Example: "The solder which Bob heated reached 350 degrees."
+
+5. **Coordination**: Include coordinated subjects/objects
+   - Example: "Alice and Bob assemble the drone together."
+   - Example: "The engineer measures and tests the circuit board."
+
+6. **Temporal Sequences**: Include clear temporal ordering
+   - Use: "first", "then", "next", "after that", "while", "before", "after"
+   - Example: "First, Alice assembles the frame. Then she attaches the motors. After that, she connects the battery."
+
+7. **Measurements and Quantities**: Include specific measurements
+   - Temperatures: "350 degrees Fahrenheit", "180 Celsius"
+   - Dimensions: "50 millimeters", "2.5 inches"
+   - Time: "3 minutes", "30 seconds"
+   - Weight: "500 grams", "2 pounds"
+
+8. **Instruments and Tools**: Mention tools explicitly
+   - "using a Torx T20 bit", "with a multimeter", "by means of a caliper"
+
+9. **Location and Context**: Include location references
+   - "in the workshop", "on the workbench", "at the lab"
+
+10. **Multiple Actions per Sentence**: Some sentences should have multiple actions
+    - Example: "Alice assembles the drone while Bob heats the solder and the engineer measures the board."
+
+The narrative should:
+- Sound natural and conversational
+- Be written as if transcribed from speech
+- Include specific technical details
+- Mix different construction types naturally
+- Not be obviously contrived
+
+Return your response as a JSON object:
+```json
+{{
+  "text": "The full narrative text here...",
+  "linguistic_features": {{
+    "passive_voice": ["list", "of", "passive", "sentences"],
+    "phrasal_verbs": ["put together", "heat up", "etc"],
+    "complex_nps": ["list", "of", "complex", "noun", "phrases"],
+    "relative_clauses": ["list", "of", "relative", "clause", "examples"]
+  }},
+  "key_entities": ["list", "of", "main", "entities"],
+  "key_actions": ["list", "of", "main", "actions"],
+  "measurements": ["any", "specific", "measurements"]
+}}
+```
+
+Generate the challenging narrative now for: {topic}
+

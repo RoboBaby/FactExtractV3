@@ -53,3 +53,12 @@ Thumbs.db
 # Local data
 data/*.jsonl
 !data/blobs.jsonl
+
+# Test results
+test_results/*.json
+!test_results/.gitkeep
+
+# Generated test data (optional - uncomment to ignore)
+# resources/generated_data/*
+# !resources/generated_data/.gitkeep
+# !resources/generated_data/README.md

@@ -293,6 +293,65 @@ If SRL is slow to respond:
    make logs-srl
    ```
 
+## Testing
+
+### Generate Test Data
+
+Generate LLM-based test data for validation:
+
+```bash
+# Generate 20 challenging test blobs
+make generate-test-data N=20 CHALLENGING=1
+
+# Or directly
+docker compose -f docker/docker-compose.yml run --rm pipeline \
+  python scripts/generate_test_data.py --count 20 --challenging
+```
+
+Test data is saved to `resources/generated_data/XXXX/` with:
+- `blobs.jsonl` - Test blobs
+- `metadata.json` - Generation metadata
+
+### Run Test Harness
+
+Run comprehensive tests on saved datasets:
+
+```bash
+# Test all saved datasets
+make test-harness SCAN=1
+
+# Test specific dataset
+make test-harness DATASET=0001
+
+# Or directly
+docker compose -f docker/docker-compose.yml run --rm pipeline \
+  python scripts/test_harness.py --scan --run-pipeline --analyze
+```
+
+Results are saved to:
+- `test_results/test_results.json` - Summary
+- `resources/generated_data/XXXX/analysis.json` - Per-dataset analysis
+
+### Unit Tests
+
+Run pytest unit tests:
+
+```bash
+make test
+
+# Or directly
+docker compose -f docker/docker-compose.yml run --rm pipeline \
+  python -m pytest tests/ -v
+```
+
+### Testing Workflow
+
+1. **Generate test data**: `make generate-test-data N=50 CHALLENGING=1`
+2. **Run pipeline**: `make test-harness SCAN=1`
+3. **Review results**: `cat test_results/test_results.json | python -m json.tool`
+
+See `TEST_DATA_WORKFLOW.md` and `QUICK_TEST_GUIDE.md` for detailed testing documentation.
+
 ## API Reference
 
 ### CLI Options

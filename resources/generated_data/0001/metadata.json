@@ -1,9 +1,7 @@
 {
   "resource_id": 1,
   "blob_count": 1,
-  "generated_at": "2025-11-19T05:36:38.540013",
+  "generated_at": "2025-11-20T04:06:46.366164",
   "model": "claude-sonnet-4-20250514",
-  "topics": [
-    "motor driver configuration"
-  ]
+  "topic": "drone assembly and calibration"
 }

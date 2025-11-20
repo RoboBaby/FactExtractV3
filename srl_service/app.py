@@ -109,30 +109,53 @@ def extract_noun_phrase(doc, head_token):
     """
     Extract complete noun phrase starting from head token.
     
+    Validates NP structure and limits to reasonable size.
+    Excludes relative clauses (acl) and stops at sentence boundaries.
+    
     Args:
         doc: spaCy Doc object
         head_token: Head token of the noun phrase
         
     Returns:
-        Span object representing the noun phrase
+        Span object representing the noun phrase, or None if invalid
     """
     # Start with the head token
     start_idx = head_token.i
     end_idx = head_token.i + 1
     
+    # Get sentence boundaries
+    sent_start = head_token.sent.start
+    sent_end = head_token.sent.end
+    
+    # Validate head token is a noun or pronoun
+    if head_token.pos_ not in ("NOUN", "PROPN", "PRON"):
+        # Not a valid NP head
+        return None
+    
     # Collect all tokens that are part of this noun phrase
-    # Include: det, amod, compound, nmod, acl, etc.
-    def collect_np_tokens(token, visited=None):
+    # Include: det, amod, compound, nummod, nmod (but NOT acl for relative clauses)
+    # Exclude: verbs, sentence boundaries, punctuation
+    def collect_np_tokens(token, visited=None, depth=0):
         if visited is None:
             visited = set()
-        if token.i in visited:
-            return
+        if token.i in visited or depth > 5:  # Limit recursion depth
+            return []
+        if token.i < sent_start or token.i >= sent_end:
+            return []  # Stop at sentence boundaries
         visited.add(token.i)
+        
+        # Don't include verbs or other non-NP parts
+        if token.pos_ in ("VERB", "AUX"):
+            return []
         
         tokens = [token]
         for child in token.children:
-            if child.dep_ in ("det", "amod", "compound", "nummod", "nmod", "acl", "advmod"):
-                tokens.extend(collect_np_tokens(child, visited))
+            # Include: det, amod, compound, nummod, nmod (descriptive), possessive, case
+            # Explicitly exclude: relcl (relative clauses), acl (clausal modifiers), appos (appositions), advcl
+            if child.dep_ in ("det", "amod", "compound", "nummod", "nmod", "advmod", "poss", "case"):
+                # Only include if it's within sentence and not a verb
+                if child.i >= sent_start and child.i < sent_end and child.pos_ not in ("VERB", "AUX"):
+                    tokens.extend(collect_np_tokens(child, visited, depth + 1))
         return tokens
     
     np_tokens = collect_np_tokens(head_token)
@@ -140,9 +163,36 @@ def extract_noun_phrase(doc, head_token):
         indices = [t.i for t in np_tokens]
         start_idx = min(indices)
         end_idx = max(indices) + 1
+        
+        # Limit to max 10 words (reasonable for proper NPs)
+        if end_idx - start_idx > 10:
+            # Take first 10 words from the NP
+            end_idx = start_idx + 10
+        
+        # Ensure we're within sentence boundaries
+        start_idx = max(start_idx, sent_start)
+        end_idx = min(end_idx, sent_end)
+        
+        # Validate the span doesn't start or end with punctuation
+        span = doc[start_idx:end_idx]
+        if span.text.strip():
+            # Remove leading/trailing punctuation
+            text = span.text.strip()
+            while text and text[0] in ".,!?;:()[]":
+                start_idx += 1
+                if start_idx >= end_idx:
+                    return None
+                text = text[1:].strip()
+            while text and text[-1] in ".,!?;:()[]":
+                end_idx -= 1
+                if end_idx <= start_idx:
+                    return None
+                text = text[:-1].strip()
+            
+            if start_idx < end_idx:
+                return doc[start_idx:end_idx]
     
-    # Return span
-    return doc[start_idx:end_idx]
+    return None
 
 
 def detect_phrasal_verb(doc, verb_token):
@@ -226,6 +276,17 @@ def extract_srl_frames(doc):
         else:
             predicate_text = verb_token.text
             predicate_lemma = verb_token.lemma_.lower()
+            
+            # Fix common lemmatization issues for be-verbs
+            # Explicitly map common auxiliary forms to "be"
+            be_forms = {"is", "am", "are", "was", "were", "'s", "'re", "'m", "been", "being", "ai"}
+            if predicate_text.lower() in be_forms:
+                predicate_lemma = "be"
+            # Fix weird spaCy lemmatization where "is" -> "i"
+            elif predicate_lemma == "i" and predicate_text.lower().startswith("i"):
+                predicate_lemma = "be"
+            elif predicate_lemma == "-pron-":
+                 predicate_lemma = "be" # simplified assumption for be-verbs labeled as PRON
         
         # Extract arguments using dependency tree
         args = extract_args_from_deps(doc, verb_token)
@@ -256,8 +317,16 @@ class SRLFrame(BaseModel):
     confidence: float = 1.0
 
 
+class Entity(BaseModel):
+    text: str
+    label: str
+    start: int
+    end: int
+
+
 class PredictResponse(BaseModel):
     frames: List[SRLFrame]
+    entities: List[Entity] = []
 
 
 @app.get("/health")
@@ -278,7 +347,7 @@ def predict(request: PredictRequest):
     Returns list of frames with predicate and arguments.
     """
     if not request.text.strip():
-        return PredictResponse(frames=[])
+        return PredictResponse(frames=[], entities=[])
     
     try:
         nlp = get_nlp()
@@ -293,18 +362,7 @@ def predict(request: PredictRequest):
             # Convert arguments to standard format
             std_args = {}
             for key, value in frame_data["arguments"].items():
-                if key == "ARG0":
-                    std_args["ARG0"] = value
-                elif key == "ARG1":
-                    std_args["ARG1"] = value
-                elif key == "ARG2":
-                    std_args["ARG2"] = value
-                elif key == "ARGM-LOC":
-                    std_args["ARGM-LOC"] = value
-                elif key == "ARGM-TMP":
-                    std_args["ARGM-TMP"] = value
-                elif key == "ARGM-MNR":
-                    std_args["ARGM-MNR"] = value
+                std_args[key] = value
             
             frame = SRLFrame(
                 predicate=frame_data["verb"],
@@ -313,8 +371,18 @@ def predict(request: PredictRequest):
                 confidence=frame_data.get("confidence", 0.9)
             )
             frames.append(frame)
+            
+        # Extract entities
+        entities = []
+        for ent in doc.ents:
+            entities.append(Entity(
+                text=ent.text,
+                label=ent.label_,
+                start=ent.start_char,
+                end=ent.end_char
+            ))
         
-        return PredictResponse(frames=frames)
+        return PredictResponse(frames=frames, entities=entities)
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"SRL prediction failed: {e}")

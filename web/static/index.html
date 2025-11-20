@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fact Extraction Review</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/style.css" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#"><i class="bi bi-diagram-3"></i> Fact Extraction Review</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="#" data-page="dashboard">
+                            <i class="bi bi-speedometer2"></i> Dashboard
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-page="facts">
+                            <i class="bi bi-list-ul"></i> Facts
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-page="entities">
+                            <i class="bi bi-person-badge"></i> Entities
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-page="videos">
+                            <i class="bi bi-play-circle"></i> Videos
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-page="clusters">
+                            <i class="bi bi-diagram-2"></i> Clusters
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-page="analytics">
+                            <i class="bi bi-graph-up"></i> Analytics
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-page="search">
+                            <i class="bi bi-search"></i> Search
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <!-- Dashboard Page -->
+        <div id="page-dashboard" class="page-content">
+            <h1 class="mb-4"><i class="bi bi-speedometer2"></i> Dashboard</h1>
+            
+            <!-- Key Metrics Cards -->
+            <div class="row mb-4" id="metrics-cards">
+                <div class="col-md-3 mb-3">
+                    <div class="card text-white bg-primary">
+                        <div class="card-body">
+                            <h5 class="card-title">Total Facts</h5>
+                            <h2 class="mb-0" id="metric-total-facts">-</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <div class="card text-white bg-success">
+                        <div class="card-body">
+                            <h5 class="card-title">Total Entities</h5>
+                            <h2 class="mb-0" id="metric-total-entities">-</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <div class="card text-white bg-info">
+                        <div class="card-body">
+                            <h5 class="card-title">Total Videos</h5>
+                            <h2 class="mb-0" id="metric-total-videos">-</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <div class="card text-white bg-warning">
+                        <div class="card-body">
+                            <h5 class="card-title">Clusters</h5>
+                            <h2 class="mb-0" id="metric-total-clusters">-</h2>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mb-4">
+                <div class="col-md-3 mb-3">
+                    <div class="card">
+                        <div class="card-body">
+                            <h6 class="card-title">Facts/Video (Avg)</h6>
+                            <h4 class="mb-0" id="metric-facts-per-video-avg">-</h4>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <div class="card">
+                        <div class="card-body">
+                            <h6 class="card-title">Entity Linking Success</h6>
+                            <h4 class="mb-0" id="metric-entity-linking-rate">-</h4>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <div class="card">
+                        <div class="card-body">
+                            <h6 class="card-title">Duplicate Rate</h6>
+                            <h4 class="mb-0" id="metric-duplicate-rate">-</h4>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <div class="card">
+                        <div class="card-body">
+                            <h6 class="card-title">Avg Verify Support</h6>
+                            <h4 class="mb-0" id="metric-avg-verify">-</h4>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts -->
+            <div class="row mb-4">
+                <div class="col-md-6 mb-3">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">Facts Over Time</h5>
+                        </div>
+                        <div class="card-body">
+                            <canvas id="chart-timeline"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">Top Predicates</h5>
+                        </div>
+                        <div class="card-body">
+                            <canvas id="chart-predicates"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mb-4">
+                <div class="col-md-6 mb-3">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">Top Entities (Subjects)</h5>
+                        </div>
+                        <div class="card-body">
+                            <canvas id="chart-entities-subjects"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">Channel Distribution</h5>
+                        </div>
+                        <div class="card-body">
+                            <canvas id="chart-channels"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Facts Page -->
+        <div id="page-facts" class="page-content" style="display: none;">
+            <h1 class="mb-4"><i class="bi bi-list-ul"></i> Facts Browser</h1>
+            
+            <!-- Filters -->
+            <div class="card mb-4">
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-3">
+                            <label class="form-label">Search</label>
+                            <input type="text" class="form-control" id="filter-search" placeholder="Search facts...">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Channel</label>
+                            <input type="text" class="form-control" id="filter-channel" placeholder="Channel ID">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Predicate</label>
+                            <input type="text" class="form-control" id="filter-predicate" placeholder="Predicate">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Min EL Conf</label>
+                            <input type="number" class="form-control" id="filter-el-conf" min="0" max="1" step="0.1">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Min Verify</label>
+                            <input type="number" class="form-control" id="filter-verify" min="0" max="1" step="0.1">
+                        </div>
+                        <div class="col-md-1">
+                            <label class="form-label">&nbsp;</label>
+                            <button class="btn btn-primary w-100" onclick="loadFacts()">
+                                <i class="bi bi-search"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Facts Table -->
+            <div class="card">
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Subject</th>
+                                    <th>Predicate</th>
+                                    <th>Object</th>
+                                    <th>Video</th>
+                                    <th>EL Conf</th>
+                                    <th>Verify</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="facts-table-body">
+                                <tr>
+                                    <td colspan="8" class="text-center">Loading...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <nav>
+                        <ul class="pagination justify-content-center" id="facts-pagination">
+                        </ul>
+                    </nav>
+                </div>
+            </div>
+        </div>
+
+        <!-- Fact Detail Modal -->
+        <div class="modal fade" id="factDetailModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Fact Details</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body" id="fact-detail-content">
+                        Loading...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Entities Page -->
+        <div id="page-entities" class="page-content" style="display: none;">
+            <h1 class="mb-4"><i class="bi bi-person-badge"></i> Entities Browser</h1>
+            
+            <div class="card mb-4">
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-3">
+                            <label class="form-label">Search</label>
+                            <input type="text" class="form-control" id="entity-filter-search" placeholder="Search entities...">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Has QID</label>
+                            <select class="form-select" id="entity-filter-qid">
+                                <option value="">All</option>
+                                <option value="true">Yes</option>
+                                <option value="false">No</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Min Link Conf</label>
+                            <input type="number" class="form-control" id="entity-filter-conf" min="0" max="1" step="0.1">
+                        </div>
+                        <div class="col-md-1">
+                            <label class="form-label">&nbsp;</label>
+                            <button class="btn btn-primary w-100" onclick="loadEntities()">
+                                <i class="bi bi-search"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Surface</th>
+                                    <th>QID</th>
+                                    <th>Local ID</th>
+                                    <th>Link Conf</th>
+                                    <th>Fact Count</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="entities-table-body">
+                                <tr>
+                                    <td colspan="6" class="text-center">Loading...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <nav>
+                        <ul class="pagination justify-content-center" id="entities-pagination">
+                        </ul>
+                    </nav>
+                </div>
+            </div>
+        </div>
+
+        <!-- Entity Detail Modal -->
+        <div class="modal fade" id="entityDetailModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Entity Details</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body" id="entity-detail-content">
+                        Loading...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Videos Page -->
+        <div id="page-videos" class="page-content" style="display: none;">
+            <h1 class="mb-4"><i class="bi bi-play-circle"></i> Videos Browser</h1>
+            
+            <div class="card mb-4">
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-3">
+                            <label class="form-label">Channel ID</label>
+                            <input type="text" class="form-control" id="video-filter-channel" placeholder="Channel ID">
+                        </div>
+                        <div class="col-md-1">
+                            <label class="form-label">&nbsp;</label>
+                            <button class="btn btn-primary w-100" onclick="loadVideos()">
+                                <i class="bi bi-search"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Video ID</th>
+                                    <th>Channel</th>
+                                    <th>Publish Time</th>
+                                    <th>Fact Count</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="videos-table-body">
+                                <tr>
+                                    <td colspan="5" class="text-center">Loading...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <nav>
+                        <ul class="pagination justify-content-center" id="videos-pagination">
+                        </ul>
+                    </nav>
+                </div>
+            </div>
+        </div>
+
+        <!-- Video Detail Modal -->
+        <div class="modal fade" id="videoDetailModal" tabindex="-1">
+            <div class="modal-dialog modal-xl">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Video Details</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body" id="video-detail-content">
+                        Loading...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Clusters Page -->
+        <div id="page-clusters" class="page-content" style="display: none;">
+            <h1 class="mb-4"><i class="bi bi-diagram-2"></i> Clusters Browser</h1>
+            
+            <div class="card mb-4">
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-2">
+                            <label class="form-label">Min Size</label>
+                            <input type="number" class="form-control" id="cluster-filter-size" min="1" value="2">
+                        </div>
+                        <div class="col-md-1">
+                            <label class="form-label">&nbsp;</label>
+                            <button class="btn btn-primary w-100" onclick="loadClusters()">
+                                <i class="bi bi-search"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Cluster ID</th>
+                                    <th>Representative Fact</th>
+                                    <th>Member Count</th>
+                                    <th>First Seen</th>
+                                    <th>Avg Support</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="clusters-table-body">
+                                <tr>
+                                    <td colspan="6" class="text-center">Loading...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <nav>
+                        <ul class="pagination justify-content-center" id="clusters-pagination">
+                        </ul>
+                    </nav>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cluster Detail Modal -->
+        <div class="modal fade" id="clusterDetailModal" tabindex="-1">
+            <div class="modal-dialog modal-xl">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Cluster Details</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body" id="cluster-detail-content">
+                        Loading...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Analytics Page -->
+        <div id="page-analytics" class="page-content" style="display: none;">
+            <h1 class="mb-4"><i class="bi bi-graph-up"></i> Quality Analytics</h1>
+            
+            <div class="row mb-4">
+                <div class="col-md-6 mb-3">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">Subject Quality</h5>
+                        </div>
+                        <div class="card-body" id="analytics-subject-quality">
+                            Loading...
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">Object Quality</h5>
+                        </div>
+                        <div class="card-body" id="analytics-object-quality">
+                            Loading...
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mb-4">
+                <div class="col-md-6 mb-3">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">Entity Linking Quality</h5>
+                        </div>
+                        <div class="card-body" id="analytics-entity-linking">
+                            Loading...
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">Verification Quality</h5>
+                        </div>
+                        <div class="card-body" id="analytics-verification">
+                            Loading...
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mb-4">
+                <div class="col-md-6 mb-3">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">Predicate Distribution</h5>
+                        </div>
+                        <div class="card-body">
+                            <canvas id="chart-predicate-dist"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">Deduplication Quality</h5>
+                        </div>
+                        <div class="card-body" id="analytics-deduplication">
+                            Loading...
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Search Page -->
+        <div id="page-search" class="page-content" style="display: none;">
+            <h1 class="mb-4"><i class="bi bi-search"></i> Semantic Search</h1>
+            
+            <div class="card mb-4">
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-8">
+                            <label class="form-label">Search Query</label>
+                            <input type="text" class="form-control" id="search-query" placeholder="Enter natural language query...">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Min Score</label>
+                            <input type="number" class="form-control" id="search-threshold" min="0" max="1" step="0.1" value="0.5">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">&nbsp;</label>
+                            <button class="btn btn-primary w-100" onclick="performSemanticSearch()">
+                                <i class="bi bi-search"></i> Search
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-body">
+                    <div id="search-results">
+                        <p class="text-muted text-center">Enter a query to search for semantically similar facts.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="/static/js/app.js"></script>
+    <script src="/static/js/dashboard.js"></script>
+    <script src="/static/js/facts.js"></script>
+    <script src="/static/js/entities.js"></script>
+    <script src="/static/js/videos.js"></script>
+    <script src="/static/js/clusters.js"></script>
+    <script src="/static/js/analytics.js"></script>
+    <script src="/static/js/search.js"></script>
+</body>
+</html>
+

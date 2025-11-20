@@ -25,10 +25,10 @@ quantities:
     time: "second"
 
 verification:
-  enable: true
+  enable: false  # Disabled by default - very slow (10-15s per fact). Enable for quality checks.
   evidence_window_sentences: 2
   retriever_embedding: "sentence-transformers/all-MiniLM-L6-v2"
-  nli_model: "roberta-large-mnli"
+  nli_model: "distilroberta-base"  # Faster than roberta-large-mnli (5-10x speedup)
   min_support: 0.6
 
 dedup:

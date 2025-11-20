@@ -26,6 +26,8 @@ COPY ./src /app/src
 COPY ./configs /app/configs
 COPY ./resources /app/resources
 COPY ./tests /app/tests
+COPY ./scripts /app/scripts
+COPY ./web /app/web
 
 # Set Python path
 ENV PYTHONPATH=/app

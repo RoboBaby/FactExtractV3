@@ -184,6 +184,7 @@ class TestDataGenerator:
         self,
         count: int,
         topics: Optional[List[str]] = None,
+        prompt_name: str = "narrative_prompt",
         **kwargs
     ) -> List[Dict[str, Any]]:
         """
@@ -192,6 +193,7 @@ class TestDataGenerator:
         Args:
             count: Number of blobs to generate
             topics: List of topics to cycle through
+            prompt_name: Name of prompt template to use
             **kwargs: Additional arguments for generate_narrative
 
         Returns:
@@ -204,13 +206,55 @@ class TestDataGenerator:
         for i in range(count):
             topic = topics[i % len(topics)]
             try:
-                blob = self.generate_narrative(topic=topic, **kwargs)
+                blob = self.generate_narrative(topic=topic, prompt_name=prompt_name, **kwargs)
                 blobs.append(blob)
                 logger.info(f"Generated blob {i+1}/{count}")
             except Exception as e:
                 logger.error(f"Failed to generate blob {i+1}: {e}")
 
         return blobs
+
+    def save_single_blob(
+        self,
+        blob: Dict[str, Any],
+        resource_id: Optional[int] = None
+    ) -> Path:
+        """
+        Save a single blob to its own numbered resource directory.
+
+        Args:
+            blob: Single blob dictionary
+            resource_id: Specific resource ID (auto-increments if None)
+
+        Returns:
+            Path to the saved resource directory
+        """
+        if resource_id is None:
+            resource_id = self._get_next_resource_id()
+
+        # Create resource directory
+        resource_dir = self.output_dir / f"{resource_id:04d}"
+        resource_dir.mkdir(parents=True, exist_ok=True)
+
+        # Save blob as JSONL (single blob per file)
+        blobs_path = resource_dir / "blobs.jsonl"
+        with open(blobs_path, "w", encoding="utf-8") as f:
+            f.write(json.dumps(blob) + "\n")
+
+        # Save metadata
+        metadata = {
+            "resource_id": resource_id,
+            "blob_count": 1,
+            "generated_at": datetime.utcnow().isoformat(),
+            "model": self.model,
+            "topic": blob.get("metadata", {}).get("topic", "unknown")
+        }
+        metadata_path = resource_dir / "metadata.json"
+        with open(metadata_path, "w", encoding="utf-8") as f:
+            json.dump(metadata, f, indent=2)
+
+        logger.info(f"Saved blob to {resource_dir}")
+        return resource_dir
 
     def save_to_resource(
         self,

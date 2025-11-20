@@ -135,7 +135,9 @@ class LocalVerifier:
         evidence_lists: List[List[str]]
     ) -> List[float]:
         """
-        Score multiple claims in batch.
+        Score multiple claims in batch for better performance.
+        
+        Uses batched NLI inference to reduce model overhead.
 
         Args:
             claims: List of claims
@@ -144,7 +146,93 @@ class LocalVerifier:
         Returns:
             List of support scores
         """
-        return [
-            self.score(claim, evidence)
-            for claim, evidence in zip(claims, evidence_lists)
-        ]
+        if not claims or not evidence_lists:
+            return [0.0] * len(claims) if claims else []
+        
+        if len(claims) != len(evidence_lists):
+            logger.warning(f"Mismatch: {len(claims)} claims but {len(evidence_lists)} evidence lists")
+            return [0.5] * len(claims)
+        
+        self._initialize()
+        
+        if self._retr is None or self._nli is None:
+            logger.warning("Verification models not available, returning default scores")
+            return [0.5] * len(claims)
+        
+        try:
+            import torch
+            from sentence_transformers import util
+            
+            # Encode all claims at once (batch encoding is faster)
+            claim_embs = self._retr.encode(claims, normalize_embeddings=True)
+            
+            scores = []
+            
+            # Process in smaller batches to avoid memory issues
+            batch_size = 8
+            for i in range(0, len(claims), batch_size):
+                batch_claims = claims[i:i+batch_size]
+                batch_evidence = evidence_lists[i:i+batch_size]
+                batch_claim_embs = claim_embs[i:i+batch_size]
+                
+                batch_scores = []
+                for claim_idx, (claim, evidence_sentences, claim_emb) in enumerate(zip(batch_claims, batch_evidence, batch_claim_embs)):
+                    if not evidence_sentences:
+                        batch_scores.append(0.0)
+                        continue
+                    
+                    # Encode evidence for this claim
+                    ev_emb = self._retr.encode(evidence_sentences, normalize_embeddings=True)
+                    
+                    # Get cosine similarities
+                    # claim_emb is numpy array, need to convert to tensor
+                    import torch
+                    claim_emb_tensor = torch.tensor(claim_emb).unsqueeze(0)
+                    ev_emb_tensor = torch.tensor(ev_emb)
+                    cos = util.cos_sim(claim_emb_tensor, ev_emb_tensor)[0].tolist()
+                    
+                    # Select top-k most similar sentences
+                    top_k = min(3, len(evidence_sentences))
+                    top_idxs = sorted(range(len(cos)), key=lambda j: -cos[j])[:top_k]
+                    top_sents = [evidence_sentences[j] for j in top_idxs]
+                    
+                    # Batch NLI inference for all top sentences
+                    nli_inputs = []
+                    for sent in top_sents:
+                        inputs = self._tok(
+                            claim, sent,
+                            return_tensors="pt",
+                            truncation=True,
+                            max_length=512
+                        )
+                        nli_inputs.append(inputs)
+                    
+                    # Run NLI in batch
+                    if nli_inputs:
+                        # Concatenate inputs
+                        input_ids = torch.cat([inp["input_ids"] for inp in nli_inputs], dim=0)
+                        attention_mask = torch.cat([inp["attention_mask"] for inp in nli_inputs], dim=0)
+                        
+                        with torch.no_grad():
+                            logits = self._nli(input_ids=input_ids, attention_mask=attention_mask).logits
+                        
+                        # Get entailment probabilities (index 2 for entailment)
+                        probs = torch.softmax(logits, dim=-1)
+                        entailment_probs = probs[:, 2].tolist()
+                        
+                        # Return maximum
+                        batch_scores.append(max(entailment_probs))
+                    else:
+                        batch_scores.append(0.0)
+                
+                scores.extend(batch_scores)
+            
+            return scores
+            
+        except Exception as e:
+            logger.error(f"Batch verification scoring failed: {e}")
+            # Fallback to individual scoring
+            return [
+                self.score(claim, evidence)
+                for claim, evidence in zip(claims, evidence_lists)
+            ]

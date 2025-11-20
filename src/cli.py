@@ -108,58 +108,99 @@ def process_blob(
     Returns:
         Number of facts extracted
     """
+    import time
+    start_time = time.time()
+    
+    blob_id = blob.get("blob_id", "unknown")
+    video_id = blob.get("video_id", "unknown")
+    logger.info(f"Processing blob {blob_id} (video: {video_id})")
+    
     # Ensure video exists
     repo.ensure_video(blob["video_id"], blob["channel_id"])
 
     # Split into sentences
+    logger.info(f"  [1/6] Splitting into sentences...")
     sentences = sentence_split(blob)
     if not sentences:
+        logger.warning(f"  No sentences found in blob {blob_id}")
         return 0
+    logger.info(f"  [1/6] ✓ Split into {len(sentences)} sentences")
 
     # Apply coreference resolution if enabled
     if cfg.get("coreference", {}).get("enable", False):
+        logger.info(f"  [2/6] Applying coreference resolution...")
         try:
             sentences = resolve_pronouns_in_sentences(sentences)
-            logger.debug(f"Applied coreference resolution to blob {blob['blob_id']}")
+            logger.info(f"  [2/6] ✓ Coreference resolution complete")
         except Exception as e:
-            logger.warning(f"Coreference resolution failed: {e}, continuing without it")
+            logger.warning(f"  [2/6] ✗ Coreference resolution failed: {e}, continuing without it")
+    else:
+        logger.info(f"  [2/6] Coreference resolution disabled")
 
     facts_extracted = 0
+    srl_calls = 0
+    entity_links = 0
 
+    logger.info(f"  [3/6] Processing {len(sentences)} sentences for SRL and fact extraction...")
     for sent_idx, (sent, span) in enumerate(sentences):
+        if (sent_idx + 1) % 5 == 0 or sent_idx == 0:
+            logger.info(f"    Processing sentence {sent_idx + 1}/{len(sentences)}: {sent[:60]}...")
         # Run SRL
         try:
+            srl_calls += 1
             srl_frames = srl_predict(cfg["srl"]["endpoint"], sent)
+            if srl_frames:
+                logger.debug(f"      → SRL extracted {len(srl_frames)} frame(s)")
         except Exception as e:
-            logger.warning(f"SRL failed for sentence: {e}")
+            logger.warning(f"      ✗ SRL failed for sentence: {e}")
             srl_frames = []
 
-        for frame in srl_frames:
+        for frame_idx, frame in enumerate(srl_frames):
+            logger.debug(f"      Processing frame {frame_idx + 1}/{len(srl_frames)}: {frame.predicate_lemma}")
+            
+            # Extract entities from sentence for snapping
+            sent_entities = el.extract_entities_from_sentence(sent) if hasattr(el, "extract_entities_from_sentence") else []
+            
             # Build proto-fact
-            proto = build_proto_fact(frame, sent)
+            proto = build_proto_fact(frame, sent, entities=sent_entities)
 
             # Skip if no subject
             if not proto.A0:
                 continue
 
             # Link entities
+            logger.debug(f"        Linking subject: {proto.A0}")
             subj = el.link_mentions([{"surface": proto.A0}])[0]
             repo.upsert_entity(subj)
+            entity_links += 1
+            if subj.get("qid"):
+                logger.debug(f"        ✓ Subject linked to Wikidata: {subj['qid']}")
+            else:
+                logger.debug(f"        → Subject using local ID: {subj.get('local_id', 'unknown')}")
 
             obj = None
             if proto.A1:
+                logger.debug(f"        Linking object: {proto.A1}")
                 obj = el.link_mentions([{"surface": proto.A1}])[0]
                 repo.upsert_entity(obj)
+                entity_links += 1
+                if obj.get("qid"):
+                    logger.debug(f"        ✓ Object linked to Wikidata: {obj['qid']}")
 
             # Handle instrument qualifier
             if proto.A2:
+                logger.debug(f"        Linking instrument: {proto.A2}")
                 instr = el.link_mentions([{"surface": proto.A2}])[0]
                 repo.upsert_entity(instr)
+                entity_links += 1
 
             # Normalize quantities
+            logger.debug(f"        [4/6] Normalizing quantities...")
             quals = {}
             if cfg["quantities"]["enable"]:
                 quals = normalize_quantities(sent, cfg["quantities"]["canonical_units"])
+                if quals:
+                    logger.debug(f"        ✓ Found quantities: {list(quals.keys())}")
 
             # Add instrument to qualifiers
             if proto.A2:
@@ -167,14 +208,17 @@ def process_blob(
                 quals["instrument"] = instr
 
             # Time normalization
+            logger.debug(f"        [5/6] Normalizing temporal expressions...")
             if cfg["timex"]["mode"] != "none":
                 try:
                     dct = derive_dct(blob["video_id"])
                     timexes = heideltime_parse(cfg["timex"]["endpoint"], sent, dct)
                     time_quals = render_timex(timexes, blob.get("t_start"), blob.get("t_end"))
                     quals.update(time_quals)
+                    if time_quals:
+                        logger.debug(f"        ✓ Found temporal expressions: {list(time_quals.keys())}")
                 except Exception as e:
-                    logger.debug(f"Time normalization failed: {e}")
+                    logger.debug(f"        → Time normalization failed: {e}")
 
             # Map predicate
             pred = map_predicate(proto.predicate_lemma)
@@ -183,22 +227,28 @@ def process_blob(
             fact = assemble_fact(blob, subj, obj, pred, quals, sent, span, proto)
 
             # Verification
+            logger.debug(f"        [6/6] Verifying fact...")
             if cfg["verification"]["enable"] and verifier:
                 evidence_sents = get_evidence_window(sentences, sent_idx, cfg["verification"]["evidence_window_sentences"])
                 claim = claim_from_fact(fact)
                 vs = verifier.score(claim, evidence_sents)
                 fact["conf"]["verify_support"] = vs
+                logger.debug(f"        → Verification score: {vs:.2f}")
 
                 if vs < cfg["verification"]["min_support"]:
-                    logger.debug(f"Fact below support threshold: {vs}")
+                    logger.debug(f"        ✗ Fact below support threshold ({vs:.2f} < {cfg['verification']['min_support']})")
                     continue
+                else:
+                    logger.debug(f"        ✓ Fact verified (score: {vs:.2f})")
 
             # Generate canonical string and ID
+            logger.debug(f"        Generating canonical fact...")
             cs = canonical_string(fact)
             fact["canonical_string"] = cs
             fact["fact_id"] = fact_id_from_canonical(cs)
 
             # Generate MinHash
+            logger.debug(f"        Checking for duplicates...")
             mh = minhash_from_text(
                 cs,
                 cfg["dedup"]["minhash"]["n_perm"],
@@ -255,8 +305,14 @@ def process_blob(
             repo.assign_or_create_cluster(fact_id, verified_candidates, embedding)
 
             facts_extracted += 1
-            logger.debug(f"Extracted fact: {fact_id}")
+            subject_surface = fact.get('subject', {}).get('surface', '?')
+            predicate_frame = pred.get('frame', '?')
+            object_surface = fact.get('object', {}).get('surface', '?') if fact.get('object') else '(no object)'
+            logger.info(f"        ✓ Fact #{facts_extracted}: {subject_surface} {predicate_frame} {object_surface}")
 
+    elapsed = time.time() - start_time
+    logger.info(f"  ✓ Blob {blob_id} complete: {facts_extracted} facts extracted in {elapsed:.2f}s")
+    logger.info(f"    Stats: {len(sentences)} sentences, {srl_calls} SRL calls, {entity_links} entity links")
     return facts_extracted
 
 
@@ -306,23 +362,45 @@ def main():
         )
 
     # Process blobs
+    import time
+    pipeline_start = time.time()
     total_facts = 0
     total_blobs = 0
+    
+    logger.info("=" * 60)
+    logger.info("Starting fact extraction pipeline")
+    logger.info("=" * 60)
 
     for blob in read_blobs(args.blobs):
         try:
+            logger.info("")
+            logger.info(f"[Blob {total_blobs + 1}] Processing: {blob.get('blob_id', 'unknown')}")
             facts = process_blob(blob, cfg, el, verifier, repo)
             total_facts += facts
             total_blobs += 1
-            logger.info(f"Processed blob {blob['blob_id']}: {facts} facts")
+            logger.info(f"[Blob {total_blobs}] ✓ Complete: {facts} facts extracted")
         except Exception as e:
-            logger.error(f"Error processing blob {blob['blob_id']}: {e}")
+            logger.error(f"[Blob {total_blobs + 1}] ✗ Error: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
             continue
 
     # Print summary
     stats = repo.get_stats()
-    logger.info(f"Processing complete: {total_blobs} blobs, {total_facts} facts")
-    logger.info(f"Database stats: {stats}")
+    pipeline_elapsed = time.time() - pipeline_start
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("PIPELINE COMPLETE")
+    logger.info("=" * 60)
+    logger.info(f"Processed: {total_blobs} blob(s)")
+    logger.info(f"Extracted: {total_facts} fact(s)")
+    logger.info(f"Average: {total_facts / total_blobs:.2f} facts per blob" if total_blobs > 0 else "Average: N/A")
+    logger.info(f"Time: {pipeline_elapsed:.2f}s ({pipeline_elapsed / total_blobs:.2f}s per blob)" if total_blobs > 0 else f"Time: {pipeline_elapsed:.2f}s")
+    logger.info("")
+    logger.info("Database stats:")
+    for key, value in stats.items():
+        logger.info(f"  {key}: {value}")
+    logger.info("=" * 60)
 
     repo.close()
 

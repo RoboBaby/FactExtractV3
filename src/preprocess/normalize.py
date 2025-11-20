@@ -81,9 +81,9 @@ def sentence_split(blob: BlobInput) -> List[Tuple[str, SentenceSpan]]:
 
     try:
         nlp = get_nlp()
-        # Process text with spaCy (disable unnecessary components for speed)
-        # We only need sentence segmentation, so disable parser, NER, etc. if not needed
-        # But keep them enabled as they might be useful downstream
+        # Process text with spaCy
+        # For sentence splitting only, we could disable parser/NER, but they're needed for SRL
+        # So we keep them enabled
         doc = nlp(text)
         
         sentences = []

@@ -1,10 +1,12 @@
 """SRL client for calling local SRL pipeline or microservice."""
 
 import requests
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple, Any
 
 from src.util.types import SRLFrame, ProtoFact
 from src.util.logging import get_logger
+
+logger = get_logger("srl.client")
 
 logger = get_logger("srl.client")
 
@@ -75,7 +77,72 @@ def clean_argument_text(text: str) -> str:
     return text
 
 
-def build_proto_fact(frame: SRLFrame, sent: str) -> ProtoFact:
+def validate_noun_phrase(text: str, max_words: int = 10, role: str = "argument") -> Optional[str]:
+    """
+    Validate that text is a reasonable noun phrase.
+    
+    Args:
+        text: Text to validate
+        max_words: Maximum number of words allowed
+        role: Role name for logging
+        
+    Returns:
+        Validated text or None if invalid
+    """
+    if not text:
+        return None
+    
+    words = text.split()
+    
+    # Check word limit
+    if len(words) > max_words:
+        logger.debug(f"{role} too long ({len(words)} words, max {max_words}): {text[:50]}...")
+        return None
+    
+    # Check for sentence-initial fragments (common issue)
+    sentence_fragments = [
+        "alright", "okay", "ok", "first", "second", "third", "next", "then", 
+        "now", "finally", "after", "before", "while", "when", "if", "because",
+        "so", "let", "let's", "let'", "let'", "welcome", "here", "there"
+    ]
+    
+    first_word_lower = words[0].lower().rstrip(".,!?;:")
+    if first_word_lower in sentence_fragments:
+        # This is likely a sentence fragment, not a proper NP
+        logger.debug(f"{role} starts with sentence fragment '{first_word_lower}': {text[:50]}...")
+        return None
+    
+    # Check that it doesn't start with a verb (common mistake)
+    # Simple heuristic: if first word ends in -ing, -ed, -s (could be verb)
+    first_word = words[0].lower()
+    if any(first_word.endswith(suffix) for suffix in ["ing", "ed", "s", "es"]) and len(words) == 1:
+        # Might be a verb, but could also be a noun - be lenient for single words
+        pass
+    
+    # Check for trailing verbs (shouldn't be in NP)
+    last_word = words[-1].lower().rstrip(".,!?;:")
+    verb_indicators = ["is", "are", "was", "were", "be", "been", "being", "do", "does", "did", "have", "has", "had", "will", "would", "can", "could", "should", "may", "might"]
+    if last_word in verb_indicators and len(words) > 1:
+        # Remove trailing verb
+        logger.debug(f"{role} ends with verb '{last_word}', removing: {text[:50]}...")
+        return " ".join(words[:-1])
+    
+    # Check for standalone "I" mixed with other words (e.g., "Sarah I" -> invalid)
+    if len(words) > 1 and any(w.lower().rstrip(".,!?;:") == "i" for w in words):
+        # If "I" appears with other words, it's likely a parsing error
+        # Keep only the non-"I" words
+        filtered_words = [w for w in words if w.lower().rstrip(".,!?;:") != "i"]
+        if filtered_words:
+            logger.debug(f"{role} contains 'I' with other words, filtering: {text[:50]}...")
+            return " ".join(filtered_words)
+        else:
+            # If only "I" remains, that's valid
+            return "I"
+    
+    return text
+
+
+def build_proto_fact(frame: SRLFrame, sent: str, entities: Optional[List[Dict[str, Any]]] = None) -> ProtoFact:
     """
     Build a proto-fact from an SRL frame using dependency-based arguments.
 
@@ -93,6 +160,7 @@ def build_proto_fact(frame: SRLFrame, sent: str) -> ProtoFact:
     Args:
         frame: SRL frame output (from dependency-based extraction)
         sent: Original sentence text
+        entities: Optional list of entities from NER for argument snapping
 
     Returns:
         ProtoFact with extracted arguments
@@ -104,10 +172,58 @@ def build_proto_fact(frame: SRLFrame, sent: str) -> ProtoFact:
         raw_args=args
     )
 
-    # Extract core arguments and clean them
-    proto.A0 = clean_argument_text(args.get("ARG0") or args.get("A0") or "")
-    proto.A1 = clean_argument_text(args.get("ARG1") or args.get("A1") or "")
-    proto.A2 = clean_argument_text(args.get("ARG2") or args.get("A2") or "")
+    # Helper to snap argument to entity
+    def snap_to_entity(arg_text: str, role_name: str) -> str:
+        if not arg_text or not entities:
+            return arg_text
+            
+        # Look for entities contained in the argument
+        contained_entities = []
+        for ent in entities:
+            # Simple check: is entity text inside argument text?
+            # And is it significant? (e.g. "Sarah" in "The girl named Sarah")
+            if ent["surface"] in arg_text:
+                contained_entities.append(ent)
+        
+        if not contained_entities:
+            return arg_text
+            
+        # Sort by length (longest first) - prefer specific entities
+        contained_entities.sort(key=lambda x: len(x["surface"]), reverse=True)
+        best_ent = contained_entities[0]
+        
+        # Snap logic: if argument is much longer than entity (e.g. > 2x words or > 5 words difference)
+        # But we must be careful not to lose context if the entity is just a modifier
+        # E.g. "Sarah's car" -> don't snap to "Sarah"
+        # E.g. "The battery connector that Sarah is installing" -> "Sarah" is NOT the head.
+        # This relies on the fact that we already cleaned up relative clauses in srl_service
+        # So we should be safer now.
+        
+        # If argument is significantly longer and contains a PERSON, ORG, GPE
+        arg_words = arg_text.split()
+        ent_words = best_ent["surface"].split()
+        
+        if len(arg_words) > len(ent_words) + 3 and best_ent.get("label") in ("PERSON", "ORG", "GPE"):
+            # Check if the entity is likely the head (heuristic)
+            # If the entity is at the start or end, it's a good candidate
+            if arg_text.startswith(best_ent["surface"]) or arg_text.endswith(best_ent["surface"]):
+                logger.debug(f"Snapping {role_name} '{arg_text}' to entity '{best_ent['surface']}'")
+                return best_ent["surface"]
+                
+        return arg_text
+
+    # Extract core arguments and clean them with validation
+    arg0_raw = clean_argument_text(args.get("ARG0") or args.get("A0") or "")
+    # Try to snap to entity first
+    arg0_snapped = snap_to_entity(arg0_raw, "ARG0")
+    proto.A0 = validate_noun_phrase(arg0_snapped, max_words=8, role="ARG0")
+    
+    arg1_raw = clean_argument_text(args.get("ARG1") or args.get("A1") or "")
+    arg1_snapped = snap_to_entity(arg1_raw, "ARG1")
+    proto.A1 = validate_noun_phrase(arg1_snapped, max_words=12, role="ARG1")
+    
+    arg2_raw = clean_argument_text(args.get("ARG2") or args.get("A2") or "")
+    proto.A2 = validate_noun_phrase(arg2_raw, max_words=10, role="ARG2")
 
     # Extract adjuncts
     proto.AM_LOC = clean_argument_text(args.get("ARGM-LOC") or args.get("AM-LOC") or "")
@@ -154,17 +270,38 @@ def build_proto_fact(frame: SRLFrame, sent: str) -> ProtoFact:
             # Might be passive, but we'll keep A1 as object
             pass
 
-    # Validate argument boundaries - ensure they're reasonable
-    # Arguments from dependency parsing should already be good, but clean up edge cases
+    # Additional validation and cleanup
     if proto.A0:
-        # Remove any trailing verbs or prepositions that shouldn't be there
-        proto.A0 = proto.A0.split()[0] if len(proto.A0.split()) == 1 else proto.A0
+        # Final cleanup: remove any remaining sentence fragments
+        a0_words = proto.A0.split()
+        # Remove leading fragments if they somehow got through
+        while a0_words and a0_words[0].lower().rstrip(".,!?;:") in ["alright", "okay", "first", "now", "let", "let's"]:
+            a0_words = a0_words[1:]
+        
+        # Remove standalone "I" if it appears with other words (e.g., "Sarah I" -> "Sarah")
+        if len(a0_words) > 1:
+            a0_words = [w for w in a0_words if w.lower().rstrip(".,!?;:") != "i"]
+        
+        # Remove verbs that shouldn't be in NP
+        verb_words = ["is", "are", "was", "were", "be", "been", "being", "do", "does", "did", "have", "has", "had", "will", "would", "can", "could", "should", "may", "might"]
+        a0_words = [w for w in a0_words if w.lower().rstrip(".,!?;:") not in verb_words]
+        
+        if a0_words:
+            proto.A0 = " ".join(a0_words)
+        else:
+            proto.A0 = None
     
     if proto.A1:
         # Remove trailing prepositions that are part of other phrases
         a1_words = proto.A1.split()
-        if len(a1_words) > 1 and a1_words[-1].lower() in ("with", "using", "by", "to", "for"):
-            proto.A1 = " ".join(a1_words[:-1])
+        if len(a1_words) > 1 and a1_words[-1].lower().rstrip(".,!?;:") in ("with", "using", "by", "to", "for", "from", "in", "on", "at"):
+            # Check if it's actually part of the NP or a separate phrase
+            # If the preposition is followed by something in the original sentence, it's likely separate
+            a1_words = a1_words[:-1]
+        if a1_words:
+            proto.A1 = " ".join(a1_words)
+        else:
+            proto.A1 = None
 
     return proto
 

@@ -8,8 +8,8 @@ WORKDIR /srv
 
 # Install SRL dependencies with spaCy
 RUN pip install --no-cache-dir \
-    spacy>=3.7,<3.9 \
-    spacy-transformers>=1.2.0 \
+    "spacy>=3.7,<3.9" \
+    "spacy-transformers>=1.2.0" \
     uvicorn \
     fastapi
 

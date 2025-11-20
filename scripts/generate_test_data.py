@@ -57,6 +57,11 @@ def main():
         help="Style of the narrative"
     )
     parser.add_argument(
+        "--challenging",
+        action="store_true",
+        help="Use challenging prompt that tests specific linguistic phenomena"
+    )
+    parser.add_argument(
         "--model",
         type=str,
         default="claude-sonnet-4-20250514",
@@ -112,49 +117,68 @@ def main():
         logger.error("Set ANTHROPIC_API_KEY environment variable")
         sys.exit(1)
 
-    # Generate data
+    # Generate data - save each blob incrementally
     logger.info(f"Generating {args.count} narrative blob(s)...")
 
-    if args.count == 1:
-        # Single generation
-        blob = generator.generate_narrative(
-            topic=args.topic,
-            duration_seconds=args.duration,
-            style=args.style
-        )
-        blobs = [blob]
-    else:
-        # Batch generation
-        topics = [args.topic] if args.topic else None
-        blobs = generator.generate_batch(
-            count=args.count,
-            topics=topics,
-            duration_seconds=args.duration,
-            style=args.style
-        )
-
-    # Save to resource directory
-    resource_dir = generator.save_to_resource(
-        blobs,
-        resource_id=args.resource_id
-    )
+    # Select prompt based on challenging flag
+    prompt_name = "challenging_prompt" if args.challenging else "narrative_prompt"
+    
+    # Get topics for batch generation
+    topics = [args.topic] if args.topic else None
+    if topics is None:
+        topics = generator._get_default_topics()
+    
+    saved_directories = []
+    
+    # Generate and save each blob individually
+    for i in range(args.count):
+        topic = topics[i % len(topics)]
+        try:
+            logger.info(f"Generating blob {i+1}/{args.count} (topic: {topic})...")
+            
+            # Generate single blob
+            blob = generator.generate_narrative(
+                topic=topic,
+                duration_seconds=args.duration,
+                style=args.style,
+                prompt_name=prompt_name
+            )
+            
+            # Save immediately to its own directory
+            resource_dir = generator.save_single_blob(
+                blob,
+                resource_id=args.resource_id if args.resource_id and i == 0 else None
+            )
+            saved_directories.append(resource_dir)
+            
+            logger.info(f"✓ Saved blob {i+1}/{args.count} to {resource_dir}")
+            
+        except Exception as e:
+            logger.error(f"Failed to generate blob {i+1}/{args.count}: {e}")
 
     # Print summary
     print("\n" + "=" * 60)
     print("GENERATION COMPLETE")
     print("=" * 60)
-    print(f"Generated: {len(blobs)} blob(s)")
-    print(f"Output: {resource_dir}")
-    print(f"Blobs file: {resource_dir / 'blobs.jsonl'}")
+    print(f"Generated: {len(saved_directories)} blob(s)")
+    print(f"Saved to directories:")
+    for i, dir_path in enumerate(saved_directories, 1):
+        print(f"  {i}. {dir_path}")
     print("=" * 60)
 
     # Print first blob preview
-    if blobs:
-        print("\nFirst blob preview:")
-        print("-" * 60)
-        text = blobs[0].get("text", "")[:500]
-        print(f"{text}...")
-        print("-" * 60)
+    if saved_directories:
+        first_dir = saved_directories[0]
+        first_blob_file = first_dir / "blobs.jsonl"
+        if first_blob_file.exists():
+            import json
+            with open(first_blob_file, "r") as f:
+                first_blob = json.loads(f.readline())
+            print("\nFirst blob preview:")
+            print("-" * 60)
+            text = first_blob.get("text", "")[:500]
+            print(f"{text}...")
+            print("-" * 60)
 
 
 if __name__ == "__main__":

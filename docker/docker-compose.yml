@@ -60,12 +60,16 @@ services:
       dockerfile: docker/Dockerfile
     ports:
       - "8000:8000"
+    volumes:
+      - ../resources/generated_data:/app/resources/generated_data
+      - ../test_results:/app/test_results
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/facts
       - QDRANT_URL=http://qdrant:6333
       - SRL_ENDPOINT=http://srl:8001/predict
       - TIMEX_ENDPOINT=http://timex:8002/parse
       - PYTHONPATH=/app
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
     depends_on:
       db:
         condition: service_healthy
@@ -89,10 +93,13 @@ services:
     volumes:
       - ../data:/data
       - ../configs:/app/configs
+      - ../resources/generated_data:/app/resources/generated_data
+      - ../test_results:/app/test_results
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/facts
       - QDRANT_URL=http://qdrant:6333
       - PYTHONWARNINGS=ignore
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
     depends_on:
       db:
         condition: service_healthy
@@ -103,6 +110,28 @@ services:
       timex:
         condition: service_started
     command: ["python", "src/cli.py", "--blobs", "/data/blobs.jsonl", "--config", "configs/app.yaml", "--init-db"]
+
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8003:8003"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/facts
+      - QDRANT_URL=http://qdrant:6333
+      - PYTHONPATH=/app
+    depends_on:
+      db:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    command: ["uvicorn", "web.api:app", "--host", "0.0.0.0", "--port", "8003"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/api/stats"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
 volumes:
   pgdata:
