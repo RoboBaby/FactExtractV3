@@ -9,6 +9,7 @@ from typing import Dict, Any, List, Optional
 
 from src.ingest.reader import read_blobs
 from src.preprocess.normalize import sentence_split, get_sentence_id, get_evidence_window
+from src.preprocess.coref import resolve_pronouns_in_sentences
 from src.srl.client import srl_predict, build_proto_fact, extract_mentions_from_proto
 from src.canonicalize.entities import EntityCanonicalizer
 from src.canonicalize.predicates import map_predicate
@@ -114,6 +115,14 @@ def process_blob(
     sentences = sentence_split(blob)
     if not sentences:
         return 0
+
+    # Apply coreference resolution if enabled
+    if cfg.get("coreference", {}).get("enable", False):
+        try:
+            sentences = resolve_pronouns_in_sentences(sentences)
+            logger.debug(f"Applied coreference resolution to blob {blob['blob_id']}")
+        except Exception as e:
+            logger.warning(f"Coreference resolution failed: {e}, continuing without it")
 
     facts_extracted = 0
 
@@ -283,7 +292,8 @@ def main():
     # Initialize entity canonicalizer
     el = EntityCanonicalizer(
         cfg["entity_linking"]["rel_data_dir"],
-        cfg["entity_linking"]["min_conf_accept"]
+        cfg["entity_linking"]["min_conf_accept"],
+        use_ner=cfg.get("entity_linking", {}).get("use_ner", True)
     )
 
     # Initialize verifier

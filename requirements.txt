@@ -16,6 +16,8 @@ requests>=2.32
 
 # NLP & Entity linking
 spacy>=3.7,<3.9
+spacy-transformers>=1.2.0
+# neuralcoref>=4.0  # Optional - has Python 3.11 compatibility issues, use spacy-experimental instead
 
 # Sentence embeddings & transformers
 sentence-transformers>=2.7

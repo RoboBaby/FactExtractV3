@@ -6,13 +6,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /srv
 
-# Install SRL dependencies
-# Note: AllenNLP has specific version requirements
+# Install SRL dependencies with spaCy
 RUN pip install --no-cache-dir \
-    allennlp==2.10.1 \
-    allennlp-models==2.10.1 \
+    spacy>=3.7,<3.9 \
+    spacy-transformers>=1.2.0 \
     uvicorn \
     fastapi
+
+# Download spaCy models (try transformer first, fallback to large/medium)
+RUN python -m spacy download en_core_web_trf || \
+    python -m spacy download en_core_web_lg || \
+    python -m spacy download en_core_web_md
 
 # Copy SRL service
 COPY srl_service/ /srv/srl_service/

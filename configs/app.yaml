@@ -4,10 +4,12 @@ srl:
   model: "transformer-srl"
 
 entity_linking:
-  primary: "REL"         # "REL" | "BLINK" | "Bootleg" | "BELA"
+  primary: "REL"         # "REL" | "BLINK" | "Bootleg" | "BELA" | "stub"
   fallback: "BLINK"
+  backend: "auto"        # "auto" | "rel" | "blink" | "stub" - auto tries REL then BLINK then stub
   rel_data_dir: "/data/rel"          # embeddings, tfidf, wiki dumps
   min_conf_accept: 0.75
+  use_ner: true         # Use spaCy NER for entity detection
 
 timex:
   mode: "service"        # "service" | "none" | "sutime"
@@ -40,6 +42,17 @@ dedup:
   embed_fallback: true
   embed_model: "sentence-transformers/all-MiniLM-L6-v2"
   embed_cosine_min: 0.84
+
+coreference:
+  enable: true            # Enable coreference resolution
+  backend: "neuralcoref"  # "neuralcoref" | "spacy-experimental" | "none"
+  resolve_pronouns: true   # Resolve pronouns (it, this, that, they, etc.)
+  cross_sentence: true     # Resolve references across sentence boundaries
+
+mwe:
+  enable: true            # Enable multi-word expression handling
+  detect_phrasal_verbs: true   # Detect phrasal verbs (put together, heat up)
+  detect_light_verbs: true     # Detect light verb constructions (make a decision)
 
 db:
   dsn: "postgresql://postgres:postgres@db:5432/facts"

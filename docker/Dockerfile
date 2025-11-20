@@ -15,10 +15,17 @@ WORKDIR /app
 COPY ./requirements.txt /app/requirements.txt
 RUN pip install -r requirements.txt
 
+# Download spaCy models (try transformer first, fallback to large/medium/small)
+RUN python -m spacy download en_core_web_trf || \
+    python -m spacy download en_core_web_lg || \
+    python -m spacy download en_core_web_md || \
+    python -m spacy download en_core_web_sm
+
 # Copy application code
 COPY ./src /app/src
 COPY ./configs /app/configs
 COPY ./resources /app/resources
+COPY ./tests /app/tests
 
 # Set Python path
 ENV PYTHONPATH=/app

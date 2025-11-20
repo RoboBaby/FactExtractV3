@@ -53,9 +53,31 @@ def srl_predict(endpoint: str, sent: str, timeout: int = 30) -> List[SRLFrame]:
         return []
 
 
+def clean_argument_text(text: str) -> str:
+    """
+    Clean argument text by removing leading/trailing punctuation and normalizing.
+    
+    Args:
+        text: Raw argument text
+        
+    Returns:
+        Cleaned text
+    """
+    if not text:
+        return ""
+    
+    # Remove leading/trailing punctuation except periods in abbreviations
+    text = text.strip(".,!?;:")
+    
+    # Normalize whitespace
+    text = " ".join(text.split())
+    
+    return text
+
+
 def build_proto_fact(frame: SRLFrame, sent: str) -> ProtoFact:
     """
-    Build a proto-fact from an SRL frame.
+    Build a proto-fact from an SRL frame using dependency-based arguments.
 
     Maps SRL roles to standardized positions:
     - A0 (Agent) -> subject
@@ -65,9 +87,11 @@ def build_proto_fact(frame: SRLFrame, sent: str) -> ProtoFact:
     Handles special cases:
     - Copula: "X is Y" -> subject=X, object=Y
     - Imperative: implicit "you" as subject
+    - Passive voice: nsubjpass indicates passive construction
+    - Complex noun phrases: already extracted by dependency parser
 
     Args:
-        frame: SRL frame output
+        frame: SRL frame output (from dependency-based extraction)
         sent: Original sentence text
 
     Returns:
@@ -80,37 +104,67 @@ def build_proto_fact(frame: SRLFrame, sent: str) -> ProtoFact:
         raw_args=args
     )
 
-    # Extract core arguments
-    proto.A0 = args.get("ARG0") or args.get("A0")
-    proto.A1 = args.get("ARG1") or args.get("A1")
-    proto.A2 = args.get("ARG2") or args.get("A2")
+    # Extract core arguments and clean them
+    proto.A0 = clean_argument_text(args.get("ARG0") or args.get("A0") or "")
+    proto.A1 = clean_argument_text(args.get("ARG1") or args.get("A1") or "")
+    proto.A2 = clean_argument_text(args.get("ARG2") or args.get("A2") or "")
 
     # Extract adjuncts
-    proto.AM_LOC = args.get("ARGM-LOC") or args.get("AM-LOC")
-    proto.AM_TMP = args.get("ARGM-TMP") or args.get("AM-TMP")
-    proto.AM_MNR = args.get("ARGM-MNR") or args.get("AM-MNR")
-    proto.AM_PRP = args.get("ARGM-PRP") or args.get("AM-PRP")
+    proto.AM_LOC = clean_argument_text(args.get("ARGM-LOC") or args.get("AM-LOC") or "")
+    proto.AM_TMP = clean_argument_text(args.get("ARGM-TMP") or args.get("AM-TMP") or "")
+    proto.AM_MNR = clean_argument_text(args.get("ARGM-MNR") or args.get("AM-MNR") or "")
+    proto.AM_PRP = clean_argument_text(args.get("ARGM-PRP") or args.get("AM-PRP") or "")
 
     # Handle special cases
 
     # Copula: "X is Y" pattern
-    if proto.predicate_lemma in ("be", "become", "seem", "appear"):
-        # For copulas, A1 is typically the complement
-        if proto.A1 and not proto.A0:
-            # Try to find subject from sentence structure
-            pass  # Keep as is, will be handled downstream
+    if proto.predicate_lemma in ("be", "become", "seem", "appear", "is", "are", "was", "were"):
+        # For copulas, A1 is typically the complement/attribute
+        # If we have A0 but no A1, try to find the complement
+        if proto.A0 and not proto.A1:
+            # Look for attribute complement after the verb
+            words = sent.lower().split()
+            pred_words = frame.predicate.lower().split()
+            if pred_words:
+                pred_idx = sent.lower().find(pred_words[0])
+                if pred_idx >= 0:
+                    # Get text after predicate
+                    after_pred = sent[pred_idx + len(pred_words[0]):].strip()
+                    # Remove leading "the", "a", etc.
+                    after_pred = after_pred.lstrip("the a an ").strip()
+                    if after_pred:
+                        proto.A1 = clean_argument_text(after_pred.split(".")[0])
 
     # Imperative: implicit "you" as subject
     if not proto.A0 and proto.A1:
         # Check if sentence might be imperative (starts with verb)
         words = sent.strip().split()
-        if words and words[0].lower() == frame.predicate_lemma:
-            proto.A0 = "you"  # Implicit subject for imperative
+        if words:
+            first_word = words[0].lower().rstrip(".,!?")
+            # Check if first word matches predicate or is imperative form
+            if first_word == frame.predicate.lower() or first_word == frame.predicate_lemma:
+                proto.A0 = "you"  # Implicit subject for imperative
 
-    # Handle instrument in A2 or with-phrase
-    if proto.A2 and "with" in sent.lower():
-        # A2 might be instrument; keep for qualifier extraction
-        pass
+    # Handle passive voice: if we have A1 but no A0, might be passive
+    # (The dependency parser should handle this, but double-check)
+    if proto.A1 and not proto.A0:
+        # Check for passive indicators in sentence
+        sent_lower = sent.lower()
+        if any(marker in sent_lower for marker in [" was ", " were ", " is ", " are ", " been "]):
+            # Might be passive, but we'll keep A1 as object
+            pass
+
+    # Validate argument boundaries - ensure they're reasonable
+    # Arguments from dependency parsing should already be good, but clean up edge cases
+    if proto.A0:
+        # Remove any trailing verbs or prepositions that shouldn't be there
+        proto.A0 = proto.A0.split()[0] if len(proto.A0.split()) == 1 else proto.A0
+    
+    if proto.A1:
+        # Remove trailing prepositions that are part of other phrases
+        a1_words = proto.A1.split()
+        if len(a1_words) > 1 and a1_words[-1].lower() in ("with", "using", "by", "to", "for"):
+            proto.A1 = " ".join(a1_words[:-1])
 
     return proto
 
